@@ -1,0 +1,86 @@
+---
+# OpenLDAP 部署 Playbook
+# 根據 PRD v1.7 文件建立
+
+- name: 部署 OpenLDAP 生產環境
+  hosts: ldap_servers
+  become: yes
+  gather_facts: yes
+
+  pre_tasks:
+    - name: 檢查作業系統版本
+      ansible.builtin.assert:
+        that:
+          - ansible_distribution == "Rocky"
+          - ansible_distribution_major_version == "10"
+        fail_msg: "此 playbook 僅支援 Rocky Linux 10"
+        success_msg: "作業系統版本檢查通過"
+
+    - name: 檢查 SELinux 是否可用
+      ansible.builtin.command: which getenforce
+      register: selinux_check
+      changed_when: false
+      failed_when: selinux_check.rc != 0
+      failed_msg: "SELinux 工具未安裝"
+
+  roles:
+    - role: system_setup
+      tags:
+        - system
+        - setup
+
+    - role: openldap
+      tags:
+        - openldap
+        - ldap
+
+    - role: security
+      tags:
+        - security
+        - firewall
+        - selinux
+
+    - role: backup
+      tags:
+        - backup
+
+    - role: monitoring
+      tags:
+        - monitoring
+        - prometheus
+
+  post_tasks:
+    - name: 顯示部署摘要
+      ansible.builtin.debug:
+        msg:
+          - "=========================================="
+          - "OpenLDAP 部署完成"
+          - "=========================================="
+          - "Base DN: {{ ldap_base_dn }}"
+          - "LDAPS Port: {{ ldap_ldaps_port }}"
+          - "管理員 DN: {{ ldap_admin_dn }}"
+          - "備份目錄: {{ ldap_backup_dir }}"
+          - "監控 Port: {{ node_exporter_port }}"
+          - "=========================================="
+          - "請確保已使用 ansible-vault 加密管理員密碼"
+          - "憑證位置: {{ ldap_cert_dir }}"
+          - "CA 憑證: {{ ldap_cert_dir }}/ca.crt (需匯出給 Redmine/GitLab)"
+          - "=========================================="
+
+    - name: 驗證服務狀態
+      ansible.builtin.systemd:
+        name: "{{ item }}"
+      register: service_status
+      loop:
+        - slapd
+        - node_exporter
+        - firewalld
+      changed_when: false
+
+    - name: 顯示服務狀態
+      ansible.builtin.debug:
+        msg: "{{ item.name }}: {{ 'running' if item.status.ActiveState == 'active' else 'stopped' }}"
+      loop: "{{ service_status.results }}"
+      loop_control:
+        label: "{{ item.name }}"
+

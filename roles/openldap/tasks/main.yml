@@ -1,0 +1,337 @@
+---
+- name: 安裝 OpenLDAP 相關套件
+  ansible.builtin.dnf:
+    name:
+      - openldap
+      - openldap-clients
+      - openldap-servers
+      - openldap-devel
+      - migrationtools
+    state: present
+
+- name: 停止並停用舊的 slapd 服務（如果存在）
+  ansible.builtin.systemd:
+    name: slapd
+    state: stopped
+    enabled: no
+  ignore_errors: yes
+
+- name: 建立 LDAP 憑證目錄
+  ansible.builtin.file:
+    path: "{{ ldap_cert_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+    selinux_type: cert_t
+
+- name: 產生 LDAP 伺服器私鑰
+  openssl_privatekey:
+    path: "{{ ldap_cert_dir }}/ldap.key"
+    size: 2048
+    type: RSA
+    owner: ldap
+    group: ldap
+    mode: '0600'
+  notify: restart slapd
+
+- name: 產生 LDAP 伺服器憑證簽署請求
+  openssl_csr:
+    path: "{{ ldap_cert_dir }}/ldap.csr"
+    privatekey_path: "{{ ldap_cert_dir }}/ldap.key"
+    common_name: "{{ ldap_server_hostname }}"
+    country_name: "{{ ldap_cert_country }}"
+    state_or_province_name: "{{ ldap_cert_state }}"
+    locality_name: "{{ ldap_cert_locality }}"
+    organization_name: "{{ ldap_cert_org }}"
+    subject_alt_name:
+      - "DNS:{{ ldap_server_hostname }}"
+      - "DNS:{{ inventory_hostname }}"
+      - "IP:{{ ansible_default_ipv4.address }}"
+  notify: restart slapd
+
+- name: 產生自簽憑證
+  openssl_certificate:
+    path: "{{ ldap_cert_dir }}/ldap.crt"
+    privatekey_path: "{{ ldap_cert_dir }}/ldap.key"
+    csr_path: "{{ ldap_cert_dir }}/ldap.csr"
+    provider: selfsigned
+    valid_in: "{{ ldap_cert_validity_days }}"
+    owner: ldap
+    group: ldap
+    mode: '0644'
+  notify: restart slapd
+
+- name: 產生 CA 憑證（用於匯出給 Redmine/GitLab）
+  openssl_certificate:
+    path: "{{ ldap_cert_dir }}/ca.crt"
+    privatekey_path: "{{ ldap_cert_dir }}/ldap.key"
+    csr_path: "{{ ldap_cert_dir }}/ldap.csr"
+    provider: selfsigned
+    valid_in: "{{ ldap_cert_validity_days }}"
+    owner: root
+    group: root
+    mode: '0644'
+  notify: restart slapd
+
+- name: 設定 SELinux context 給憑證檔案
+  ansible.posix.sefcontext:
+    target: "{{ ldap_cert_dir }}(/.*)?"
+    setype: cert_t
+    state: present
+
+- name: 套用 SELinux context
+  ansible.builtin.command: restorecon -R "{{ ldap_cert_dir }}"
+  changed_when: false
+
+- name: 建立 LDAP 資料目錄
+  ansible.builtin.file:
+    path: /var/lib/ldap
+    state: directory
+    owner: ldap
+    group: ldap
+    mode: '0700'
+
+- name: 建立 LDAP 執行目錄
+  ansible.builtin.file:
+    path: /var/run/openldap
+    state: directory
+    owner: ldap
+    group: ldap
+    mode: '0755'
+
+- name: 建立 LDAP 日誌目錄
+  ansible.builtin.file:
+    path: "{{ ldap_log_dir }}"
+    state: directory
+    owner: ldap
+    group: ldap
+    mode: '0755'
+    selinux_type: slapd_log_t
+
+- name: 複製 DB_CONFIG 範本
+  ansible.builtin.template:
+    src: DB_CONFIG.j2
+    dest: /var/lib/ldap/DB_CONFIG
+    owner: ldap
+    group: ldap
+    mode: '0600'
+  notify: restart slapd
+
+- name: 產生管理員密碼雜湊
+  ansible.builtin.shell: |
+    slappasswd -s "{{ ldap_admin_password }}" -n
+  register: admin_password_hash
+  no_log: true
+  changed_when: false
+
+- name: 檢查 slapd 是否已初始化
+  ansible.builtin.stat:
+    path: /etc/openldap/slapd.d/cn=config.ldif
+  register: slapd_initialized
+
+- name: 初始化 OpenLDAP 配置目錄（如果不存在）
+  ansible.builtin.command: >
+    slapdtest -F /etc/openldap/slapd.d
+  args:
+    creates: /etc/openldap/slapd.d/cn=config.ldif
+  when: not slapd_initialized.stat.exists
+  changed_when: false
+
+- name: 啟動 slapd 服務（用於初始配置）
+  ansible.builtin.systemd:
+    name: slapd
+    state: started
+    enabled: yes
+  when: not slapd_initialized.stat.exists
+
+- name: 等待 slapd 服務就緒（ldapi）
+  ansible.builtin.wait_for:
+    path: /var/run/openldap/slapd.args
+    delay: 2
+    timeout: 10
+  when: not slapd_initialized.stat.exists
+
+- name: 設定資料庫（使用 ldapmodify）
+  ansible.builtin.template:
+    src: database_config.ldif.j2
+    dest: /tmp/database_config.ldif
+    mode: '0600'
+  vars:
+    admin_password_hash: "{{ admin_password_hash.stdout }}"
+  when: not slapd_initialized.stat.exists
+
+- name: 載入資料庫設定
+  ansible.builtin.command: >
+    ldapmodify -Y EXTERNAL -H ldapi:/// -f /tmp/database_config.ldif
+  when: not slapd_initialized.stat.exists
+  register: db_config_result
+  failed_when: 
+    - db_config_result.rc != 0
+    - "'Already exists' not in db_config_result.stderr"
+  no_log: true
+
+- name: 設定 TLS 憑證（使用 ldapmodify）
+  ansible.builtin.template:
+    src: tls_config.ldif.j2
+    dest: /tmp/tls_config.ldif
+    mode: '0600'
+  when: not slapd_initialized.stat.exists
+
+- name: 載入 TLS 設定
+  ansible.builtin.command: >
+    ldapmodify -Y EXTERNAL -H ldapi:/// -f /tmp/tls_config.ldif
+  when: not slapd_initialized.stat.exists
+  register: tls_config_result
+  failed_when: 
+    - tls_config_result.rc != 0
+    - "'Already exists' not in tls_config_result.stderr"
+  ignore_errors: yes
+
+- name: 設定 LDAPS 監聽器
+  ansible.builtin.shell: |
+    ldapmodify -Y EXTERNAL -H ldapi:/// <<EOF
+    dn: cn=config
+    changetype: modify
+    replace: olcTLSCertificateFile
+    olcTLSCertificateFile: {{ ldap_cert_dir }}/ldap.crt
+    -
+    replace: olcTLSCertificateKeyFile
+    olcTLSCertificateKeyFile: {{ ldap_cert_dir }}/ldap.key
+    -
+    replace: olcTLSCACertificateFile
+    olcTLSCACertificateFile: {{ ldap_cert_dir }}/ca.crt
+    EOF
+  when: not slapd_initialized.stat.exists
+  register: ldaps_config_result
+  failed_when: 
+    - ldaps_config_result.rc != 0
+    - "'Already exists' not in ldaps_config_result.stderr"
+  ignore_errors: yes
+  no_log: true
+
+- name: 清理暫存設定檔
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /tmp/database_config.ldif
+    - /tmp/tls_config.ldif
+  when: not slapd_initialized.stat.exists
+
+- name: 設定 slapd 檔案權限
+  ansible.builtin.file:
+    path: "{{ item }}"
+    owner: ldap
+    group: ldap
+    recurse: yes
+  loop:
+    - /etc/openldap/slapd.d
+    - /var/lib/ldap
+  notify: restart slapd
+
+- name: 啟動並啟用 slapd 服務
+  ansible.builtin.systemd:
+    name: slapd
+    state: started
+    enabled: yes
+
+- name: 等待 slapd 服務就緒
+  ansible.builtin.wait_for:
+    port: "{{ ldap_ldaps_port }}"
+    delay: 5
+    timeout: 30
+
+- name: 建立 Base DN 結構
+  ansible.builtin.template:
+    src: base.ldif.j2
+    dest: /tmp/base.ldif
+    mode: '0600'
+  register: base_ldif_created
+
+- name: 檢查 Base DN 是否已存在
+  ansible.builtin.command: >
+    ldapsearch -x -H ldaps://localhost:{{ ldap_ldaps_port }}
+    -D "{{ ldap_admin_dn }}"
+    -w "{{ ldap_admin_password }}"
+    -b "{{ ldap_base_dn }}"
+    -s base "(objectclass=*)"
+  register: base_dn_check
+  changed_when: false
+  failed_when: false
+  no_log: true
+
+- name: 載入 Base DN
+  ansible.builtin.command: >
+    ldapadd -x -D "{{ ldap_admin_dn }}"
+    -w "{{ ldap_admin_password }}"
+    -H ldaps://localhost:{{ ldap_ldaps_port }}
+    -f /tmp/base.ldif
+  register: base_ldif_result
+  changed_when: "'already exists' not in base_ldif_result.stderr"
+  failed_when: 
+    - base_ldif_result.rc != 0
+    - "'already exists' not in base_ldif_result.stderr"
+  when: 
+    - base_ldif_created.changed
+    - base_dn_check.rc != 0
+  no_log: true
+
+- name: 建立 OU 結構
+  ansible.builtin.template:
+    src: ou_structure.ldif.j2
+    dest: /tmp/ou_structure.ldif
+    mode: '0600'
+  register: ou_ldif_created
+
+- name: 檢查 OU 是否已存在
+  ansible.builtin.command: >
+    ldapsearch -x -H ldaps://localhost:{{ ldap_ldaps_port }}
+    -D "{{ ldap_admin_dn }}"
+    -w "{{ ldap_admin_password }}"
+    -b "{{ ldap_ou_people }}"
+    -s base "(objectclass=*)"
+  register: ou_check
+  changed_when: false
+  failed_when: false
+  no_log: true
+
+- name: 載入 OU 結構
+  ansible.builtin.command: >
+    ldapadd -x -D "{{ ldap_admin_dn }}"
+    -w "{{ ldap_admin_password }}"
+    -H ldaps://localhost:{{ ldap_ldaps_port }}
+    -f /tmp/ou_structure.ldif
+  register: ou_ldif_result
+  changed_when: "'already exists' not in ou_ldif_result.stderr"
+  failed_when:
+    - ou_ldif_result.rc != 0
+    - "'already exists' not in ou_ldif_result.stderr"
+  when: 
+    - ou_ldif_created.changed
+    - ou_check.rc != 0
+  no_log: true
+
+- name: 清理暫存檔案
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /tmp/base.ldif
+    - /tmp/ou_structure.ldif
+
+- name: 驗證 LDAP 連線
+  ansible.builtin.command: >
+    ldapsearch -x -H ldaps://localhost:{{ ldap_ldaps_port }}
+    -D "{{ ldap_admin_dn }}"
+    -w "{{ ldap_admin_password }}"
+    -b "{{ ldap_base_dn }}"
+    -s base "(objectclass=*)"
+  register: ldap_verify
+  changed_when: false
+  no_log: true
+
+- name: 顯示 LDAP 驗證結果
+  ansible.builtin.debug:
+    msg: "LDAP 服務已成功啟動並可連線"
+

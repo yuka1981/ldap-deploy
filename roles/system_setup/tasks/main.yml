@@ -1,0 +1,61 @@
+---
+- name: 確保 EPEL repository 已啟用
+  ansible.builtin.dnf:
+    name: epel-release
+    state: present
+
+- name: 更新系統套件（僅 security updates）
+  ansible.builtin.dnf:
+    name: "*"
+    state: latest
+    security: yes
+    update_cache: yes
+  register: dnf_update_result
+  changed_when: dnf_update_result.changed
+
+- name: 安裝必要套件
+  ansible.builtin.dnf:
+    name:
+      - openssl
+      - ca-certificates
+      - vim
+      - wget
+      - curl
+      - net-tools
+      - bind-utils
+      - chrony
+    state: present
+
+- name: 設定時區
+  ansible.builtin.timezone:
+    name: "{{ timezone }}"
+
+- name: 確保 chronyd 服務已啟動並啟用
+  ansible.builtin.systemd:
+    name: chronyd
+    state: started
+    enabled: yes
+
+- name: 設定 NTP servers
+  ansible.builtin.lineinfile:
+    path: /etc/chrony.conf
+    regexp: "^pool {{ item }}"
+    line: "pool {{ item }} iburst"
+    state: present
+  loop: "{{ ntp_servers }}"
+  notify: restart chronyd
+
+- name: 確保 SELinux 處於 Enforcing 模式
+  ansible.posix.selinux:
+    state: enforcing
+    policy: targeted
+
+- name: 檢查 SELinux 狀態
+  ansible.builtin.command: getenforce
+  register: selinux_status
+  changed_when: false
+
+- name: 顯示 SELinux 狀態
+  ansible.builtin.debug:
+    msg: "SELinux 目前狀態: {{ selinux_status.stdout }}"
+

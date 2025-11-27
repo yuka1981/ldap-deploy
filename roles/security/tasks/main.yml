@@ -1,0 +1,83 @@
+---
+- name: 確保 firewalld 已安裝
+  ansible.builtin.dnf:
+    name: firewalld
+    state: present
+
+- name: 啟動並啟用 firewalld
+  ansible.builtin.systemd:
+    name: firewalld
+    state: started
+    enabled: yes
+
+- name: 設定預設區域為 drop（拒絕所有連線）
+  ansible.posix.firewalld:
+    state: enabled
+    permanent: yes
+    immediate: yes
+
+- name: 允許管理網段 SSH 連線
+  ansible.posix.firewalld:
+    zone: public
+    source: "{{ item }}"
+    port: 22/tcp
+    permanent: yes
+    immediate: yes
+    state: enabled
+  loop: "{{ management_networks }}"
+
+- name: 允許 Redmine 主機連線 LDAPS
+  ansible.posix.firewalld:
+    zone: public
+    source: "{{ item }}/32"
+    port: "{{ ldap_ldaps_port }}/tcp"
+    permanent: yes
+    immediate: yes
+    state: enabled
+  loop: "{{ redmine_hosts }}"
+
+- name: 允許 GitLab 主機連線 LDAPS
+  ansible.posix.firewalld:
+    zone: public
+    source: "{{ item }}/32"
+    port: "{{ ldap_ldaps_port }}/tcp"
+    permanent: yes
+    immediate: yes
+    state: enabled
+  loop: "{{ gitlab_hosts }}"
+
+- name: 允許監控主機連線（node_exporter）
+  ansible.posix.firewalld:
+    zone: public
+    source: "{{ item }}/32"
+    port: "{{ node_exporter_port }}/tcp"
+    permanent: yes
+    immediate: yes
+    state: enabled
+  loop: "{{ monitoring_hosts }}"
+
+- name: 重新載入 firewalld 規則
+  ansible.builtin.command: firewall-cmd --reload
+  changed_when: false
+
+- name: 設定 SELinux boolean 允許 slapd 使用網路
+  ansible.posix.seboolean:
+    name: slapd_can_connect_ldap
+    state: yes
+    persistent: yes
+
+- name: 設定 SELinux boolean 允許 slapd 讀寫資料庫
+  ansible.posix.seboolean:
+    name: slapd_full_access
+    state: yes
+    persistent: yes
+
+- name: 驗證防火牆規則
+  ansible.builtin.command: firewall-cmd --list-all
+  register: firewall_status
+  changed_when: false
+
+- name: 顯示防火牆狀態
+  ansible.builtin.debug:
+    var: firewall_status.stdout_lines
+

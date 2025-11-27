@@ -1,0 +1,80 @@
+---
+- name: 建立 node_exporter 使用者
+  ansible.builtin.user:
+    name: '{{ node_exporter_user }}'
+    group: '{{ node_exporter_group }}'
+    system: true
+    shell: /sbin/nologin
+    home: /var/lib/node_exporter
+    create_home: false
+
+- name: 建立 node_exporter 目錄
+  ansible.builtin.file:
+    path: /opt/node_exporter
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: 下載 node_exporter
+  ansible.builtin.get_url:
+    url: >-
+      https://github.com/prometheus/node_exporter/releases/download/
+      v{{ node_exporter_version }}/node_exporter-{{ node_exporter_version }}.linux-amd64.tar.gz
+    dest: /tmp/node_exporter.tar.gz
+    mode: '0644'
+
+- name: 解壓縮 node_exporter
+  ansible.builtin.unarchive:
+    src: /tmp/node_exporter.tar.gz
+    dest: /opt/
+    remote_src: true
+    creates: /opt/node_exporter-{{ node_exporter_version }}.linux-amd64
+
+- name: 建立 node_exporter 符號連結
+  ansible.builtin.file:
+    src: /opt/node_exporter-{{ node_exporter_version }}.linux-amd64/node_exporter
+    dest: /opt/node_exporter/node_exporter
+    state: link
+
+- name: 建立 node_exporter systemd service
+  ansible.builtin.template:
+    src: node_exporter.service.j2
+    dest: /etc/systemd/system/node_exporter.service
+    owner: root
+    group: root
+    mode: '0644'
+  notify: restart node_exporter
+
+- name: 重新載入 systemd
+  ansible.builtin.systemd:
+    daemon_reload: true
+
+- name: 啟動並啟用 node_exporter
+  ansible.builtin.systemd:
+    name: node_exporter
+    state: started
+    enabled: true
+
+- name: 等待 node_exporter 就緒
+  ansible.builtin.wait_for:
+    port: '{{ node_exporter_port }}'
+    delay: 2
+    timeout: 10
+
+- name: 清理下載的檔案
+  ansible.builtin.file:
+    path: /tmp/node_exporter.tar.gz
+    state: absent
+
+- name: 驗證 node_exporter 運作
+  ansible.builtin.uri:
+    url: 'http://localhost:{{ node_exporter_port }}/metrics'
+    method: GET
+    status_code: 200
+  register: monitoring_node_exporter_check
+  changed_when: false
+
+- name: 顯示 node_exporter 狀態
+  ansible.builtin.debug:
+    msg: 'node_exporter 已成功啟動並可存取'

@@ -1,0 +1,24 @@
+[Unit]
+Description=Node Exporter
+After=network.target
+
+[Service]
+Type=simple
+User={{ node_exporter_user }}
+Group={{ node_exporter_group }}
+ExecStart=/opt/node_exporter/node_exporter \
+    --web.listen-address=:{{ node_exporter_port }} \
+    --collector.systemd \
+    --collector.processes \
+    --collector.filesystem \
+    --collector.network \
+    --collector.diskstats \
+    --collector.meminfo \
+    --collector.cpu
+
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+

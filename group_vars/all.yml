@@ -1,0 +1,51 @@
+---
+# OpenLDAP 基本設定
+ldap_base_dn: 'dc=qctrd,dc=qct'
+ldap_organization: 'QCTRD'
+ldap_domain_components:
+  - 'qctrd'
+  - 'qct'
+
+# LDAP 管理員設定
+ldap_admin_dn: 'cn=admin,{{ ldap_base_dn }}'
+ldap_admin_password: 'CHANGE_ME_IN_VAULT' # 應使用 ansible-vault 加密
+
+# LDAP 服務設定
+ldap_server_hostname: '{{ inventory_hostname }}'
+ldap_ldaps_port: 636
+ldap_ldap_port: 389 # 僅用於 StartTLS，不直接暴露
+
+# OU 結構
+ldap_ou_people: 'ou=People,{{ ldap_base_dn }}'
+ldap_ou_groups: 'ou=Groups,{{ ldap_base_dn }}'
+ldap_ou_service_accounts: 'ou=ServiceAccounts,{{ ldap_base_dn }}'
+
+# 憑證設定
+ldap_cert_dir: '/etc/openldap/certs'
+ldap_cert_validity_days: 1095 # 3 年
+ldap_cert_country: 'TW'
+ldap_cert_state: 'Taiwan'
+ldap_cert_locality: 'Taoyuan'
+ldap_cert_org: 'QCTRD'
+
+# 備份設定
+ldap_backup_dir: '/backup/ldap'
+ldap_backup_retention_days: 30
+ldap_backup_monthly_retention_months: 6
+ldap_backup_cron_hour: 2 # 凌晨 2 點
+ldap_backup_cron_minute: 0
+
+# 日誌設定
+ldap_log_dir: '/var/log/openldap'
+ldap_log_retention_days: 90
+
+# 監控設定
+node_exporter_version: '1.7.0'
+node_exporter_port: 9100
+node_exporter_user: 'node_exporter'
+node_exporter_group: 'node_exporter'
+
+# 系統設定
+timezone: 'Asia/Taipei'
+ntp_servers:
+  - 'pool.ntp.org'

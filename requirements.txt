@@ -1,0 +1,13 @@
+# Ansible 相關套件需求
+# 安裝方式: pip install -r requirements.txt
+
+# 基本需求
+ansible>=2.9
+ansible-core>=2.12
+
+# 用於 Rocky Linux / RHEL
+dnf>=4.0.0
+
+# 用於憑證管理
+cryptography>=3.0.0
+
