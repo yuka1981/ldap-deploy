@@ -1,7 +1,7 @@
 ---
 - name: 建立備份目錄
   ansible.builtin.file:
-    path: "{{ ldap_backup_dir }}"
+    path: '{{ ldap_backup_dir }}'
     state: directory
     owner: root
     group: root
@@ -31,18 +31,18 @@
 
 - name: 設定每日備份 cron job
   ansible.builtin.cron:
-    name: "LDAP Daily Backup"
-    minute: "{{ ldap_backup_cron_minute }}"
-    hour: "{{ ldap_backup_cron_hour }}"
-    job: "/usr/local/bin/backup_ldap.sh"
+    name: 'LDAP Daily Backup'
+    minute: '{{ ldap_backup_cron_minute }}'
+    hour: '{{ ldap_backup_cron_hour }}'
+    job: '/usr/local/bin/backup_ldap.sh'
     user: root
 
 - name: 設定備份清理 cron job（每日執行）
   ansible.builtin.cron:
-    name: "LDAP Backup Cleanup"
-    minute: "30"
-    hour: "3"
-    job: "/usr/local/bin/cleanup_backup.sh"
+    name: 'LDAP Backup Cleanup'
+    minute: '30'
+    hour: '3'
+    job: '/usr/local/bin/cleanup_backup.sh'
     user: root
 
 - name: 測試備份腳本執行
@@ -52,5 +52,4 @@
 
 - name: 顯示備份測試結果
   ansible.builtin.debug:
-    msg: "備份腳本測試完成，備份檔案位於 {{ ldap_backup_dir }}"
-
+    msg: '備份腳本測試完成，備份檔案位於 {{ ldap_backup_dir }}'

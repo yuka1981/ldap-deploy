@@ -8,76 +8,83 @@
   ansible.builtin.systemd:
     name: firewalld
     state: started
-    enabled: yes
+    enabled: true
 
 - name: 設定預設區域為 drop（拒絕所有連線）
   ansible.posix.firewalld:
     state: enabled
-    permanent: yes
-    immediate: yes
+    permanent: true
+    immediate: true
 
 - name: 允許管理網段 SSH 連線
   ansible.posix.firewalld:
     zone: public
-    source: "{{ item }}"
+    source: '{{ item }}'
     port: 22/tcp
-    permanent: yes
-    immediate: yes
+    permanent: true
+    immediate: true
     state: enabled
-  loop: "{{ management_networks }}"
+  loop: '{{ management_networks }}'
 
-- name: 允許 Redmine 主機連線 LDAPS
+- name: 允許 Redmine 主機連線 FreeIPA 服務
   ansible.posix.firewalld:
     zone: public
-    source: "{{ item }}/32"
-    port: "{{ ldap_ldaps_port }}/tcp"
-    permanent: yes
-    immediate: yes
+    source: '{{ item }}/32'
+    port: '{{ ldap_ldaps_port }}/tcp'
+    permanent: true
+    immediate: true
     state: enabled
-  loop: "{{ redmine_hosts }}"
+  loop: '{{ redmine_hosts }}'
 
-- name: 允許 GitLab 主機連線 LDAPS
+- name: 允許 GitLab 主機連線 FreeIPA 服務
   ansible.posix.firewalld:
     zone: public
-    source: "{{ item }}/32"
-    port: "{{ ldap_ldaps_port }}/tcp"
-    permanent: yes
-    immediate: yes
+    source: '{{ item }}/32'
+    port: '{{ ldap_ldaps_port }}/tcp'
+    permanent: true
+    immediate: true
     state: enabled
-  loop: "{{ gitlab_hosts }}"
+  loop: '{{ gitlab_hosts }}'
+
+- name: 允許 FreeIPA Web UI (HTTPS)
+  ansible.posix.firewalld:
+    zone: public
+    source: '{{ item }}'
+    port: 443/tcp
+    permanent: true
+    immediate: true
+    state: enabled
+  loop: '{{ management_networks }}'
+  when: ipaserver_setup_firewalld is not defined or not ipaserver_setup_firewalld
 
 - name: 允許監控主機連線（node_exporter）
   ansible.posix.firewalld:
     zone: public
-    source: "{{ item }}/32"
-    port: "{{ node_exporter_port }}/tcp"
-    permanent: yes
-    immediate: yes
+    source: '{{ item }}/32'
+    port: '{{ node_exporter_port }}/tcp'
+    permanent: true
+    immediate: true
     state: enabled
-  loop: "{{ monitoring_hosts }}"
+  loop: '{{ monitoring_hosts }}'
 
 - name: 重新載入 firewalld 規則
   ansible.builtin.command: firewall-cmd --reload
   changed_when: false
 
-- name: 設定 SELinux boolean 允許 slapd 使用網路
+- name: 設定 SELinux boolean 允許 FreeIPA 服務
   ansible.posix.seboolean:
-    name: slapd_can_connect_ldap
-    state: yes
-    persistent: yes
-
-- name: 設定 SELinux boolean 允許 slapd 讀寫資料庫
-  ansible.posix.seboolean:
-    name: slapd_full_access
-    state: yes
-    persistent: yes
+    name: '{{ item }}'
+    state: true
+    persistent: true
+  loop:
+    - httpd_can_network_connect
+    - httpd_can_connect_ldap
 
 - name: 驗證防火牆規則
   ansible.builtin.command: firewall-cmd --list-all
-  register: firewall_status
+  register: security_firewall_status
   changed_when: false
 
 - name: 顯示防火牆狀態
   ansible.builtin.debug:
-    var: firewall_status.stdout_lines
-
+    var: security_firewall_status.stdout_lines

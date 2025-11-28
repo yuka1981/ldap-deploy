@@ -1,6 +1,8 @@
-# OpenLDAP 部署 Ansible Playbook
+# FreeIPA 部署 Ansible Playbook
 
-本專案提供完整的 Ansible playbook 用於在 Rocky Linux 10 上部署 OpenLDAP 生產環境，完全符合 [PRD v1.7](docs/openldap_prd_v1.7.md) 文件規範。
+本專案提供完整的 Ansible playbook 用於在 Rocky Linux 10 上部署 FreeIPA 生產環境，完全符合 [PRD v1.7](docs/openldap_prd_v1.7.md) 文件規範。
+
+**注意：** 本專案使用 **FreeIPA** 取代 OpenLDAP，提供更完整的身份管理解決方案（包含 LDAP、Kerberos、DNS、CA 等服務）。
 
 ## 專案結構
 
@@ -15,7 +17,7 @@ ldap-deploy/
 │   └── ldap_servers.yml
 ├── roles/                   # Ansible roles
 │   ├── system_setup/        # 系統基本設定
-│   ├── openldap/            # OpenLDAP 安裝與設定
+│   ├── openldap/            # FreeIPA 安裝與設定
 │   ├── security/            # 安全性設定（SELinux、防火牆）
 │   ├── backup/              # 備份腳本與排程
 │   └── monitoring/          # 監控設定（node_exporter）
@@ -31,7 +33,11 @@ ldap-deploy/
 - Python >= 3.6
 - 必要的 Python 模組：
   - `dnf` (用於 Rocky Linux 套件管理)
-  - `openssl` (用於憑證管理)
+  - `cryptography` (用於憑證管理)
+- 必要的 Ansible Collections：
+  ```bash
+  ansible-galaxy collection install -r collections.yml
+  ```
 
 ### 目標主機（LDAP 伺服器）
 
@@ -56,7 +62,10 @@ ldap-prod:
 
 編輯 `group_vars/all.yml`，設定必要的變數：
 
-- `ldap_admin_password`: LDAP 管理員密碼（**強烈建議使用 ansible-vault 加密**）
+- `ipadm_password`: FreeIPA Directory Manager 密碼（**強烈建議使用 ansible-vault 加密**）
+- `ipaadmin_password`: FreeIPA Admin 密碼（**強烈建議使用 ansible-vault 加密**）
+- `ipa_domain`: FreeIPA Domain（例如：`qctrd.qct`）
+- `ipa_realm`: FreeIPA Realm（例如：`QCTRD.QCT`）
 - `management_networks`: 管理網段
 - `redmine_hosts`: Redmine 主機 IP 列表
 - `gitlab_hosts`: GitLab 主機 IP 列表
@@ -71,7 +80,8 @@ ldap-prod:
 ansible-vault create group_vars/all_vault.yml
 
 # 在編輯器中加入：
-# ldap_admin_password: "your_secure_password_here"
+# ipadm_password: "your_dm_password_here"
+# ipaadmin_password: "your_admin_password_here"
 
 # 或在 playbook 執行時使用 --ask-vault-pass
 ```
@@ -101,16 +111,15 @@ ansible-playbook playbook.yml --limit ldap-test
 - 設定時區與 NTP
 - 確保 SELinux 為 Enforcing 模式
 
-### openldap Role
+### openldap Role（FreeIPA）
 
-- 安裝 OpenLDAP 相關套件
-- 產生自簽憑證（LDAPS）
-- 初始化 LDAP 資料庫
-- 建立 Base DN 和 OU 結構：
-  - `dc=qctrd,dc=qct`
-  - `ou=People`
-  - `ou=Groups`
-  - `ou=ServiceAccounts`
+- 使用 `freeipa.ansible_freeipa.ipaserver` role 部署 FreeIPA Server
+- 自動設定 LDAP、Kerberos、CA 等服務
+- 初始化 Domain: `qctrd.qct`，Base DN: `dc=qctrd,dc=qct`
+- 使用 FreeIPA 預設的 OU 結構：
+  - `cn=users,cn=accounts,dc=qctrd,dc=qct`
+  - `cn=groups,cn=accounts,dc=qctrd,dc=qct`
+  - `cn=services,cn=accounts,dc=qctrd,dc=qct`
 
 ### security Role
 
@@ -118,11 +127,11 @@ ansible-playbook playbook.yml --limit ldap-test
   - 僅允許管理網段 SSH（22）
   - 僅允許 Redmine/GitLab 主機連線 LDAPS（636）
   - 僅允許監控主機連線 node_exporter（9100）
-- 設定 SELinux boolean 允許 slapd 運作
+- 設定 SELinux boolean 允許 FreeIPA 服務運作
 
 ### backup Role
 
-- 建立每日備份腳本（`slapcat` 匯出）
+- 建立每日備份腳本（使用 `ipa-backup` 匯出）
 - 備份設定檔與憑證
 - 設定 cron job 自動備份
 - 自動清理過期備份（保留 30 天，月備份保留 6 個月）
@@ -141,9 +150,9 @@ ansible-playbook playbook.yml --limit ldap-test
 
 ### 憑證管理
 
-- 憑證位置：`/etc/openldap/certs/`
-- 伺服器憑證：`ldap.crt`、`ldap.key`
-- CA 憑證：`ca.crt`（需匯出給 Redmine/GitLab 主機）
+- FreeIPA 自動管理 CA 和憑證
+- CA 憑證位置：`/etc/ipa/ca.crt`（需匯出給 Redmine/GitLab 主機）
+- 憑證由 FreeIPA 內建 CA 自動簽發
 
 ### 備份
 
@@ -163,18 +172,29 @@ ansible-playbook playbook.yml --limit ldap-test
 ### 檢查服務狀態
 
 ```bash
-systemctl status slapd
+# 檢查 FreeIPA 服務狀態
+ipa-server-status
+systemctl status dirsrv@{{ ipa_realm | lower }}
+systemctl status httpd
+systemctl status krb5kdc
 systemctl status node_exporter
 systemctl status firewalld
 ```
 
-### 測試 LDAP 連線
+### 測試 FreeIPA LDAP 連線
 
 ```bash
-# 測試 LDAPS 連線
+# 測試 LDAPS 連線（使用 Directory Manager）
 ldapsearch -x -H ldaps://localhost:636 \
-  -D "cn=admin,dc=qctrd,dc=qct" \
-  -w "your_password" \
+  -D "cn=Directory Manager" \
+  -w "your_dm_password" \
+  -b "dc=qctrd,dc=qct" \
+  -s base "(objectclass=*)"
+
+# 或使用 FreeIPA admin 帳號
+ldapsearch -x -H ldaps://localhost:636 \
+  -D "uid=admin,cn=users,cn=accounts,dc=qctrd,dc=qct" \
+  -w "your_admin_password" \
   -b "dc=qctrd,dc=qct" \
   -s base "(objectclass=*)"
 ```
@@ -193,10 +213,10 @@ ls -lh /backup/ldap/
 
 ## 後續步驟
 
-1. **匯出 CA 憑證給 Redmine/GitLab**
+1. **匯出 FreeIPA CA 憑證給 Redmine/GitLab**
    ```bash
-   # 從 LDAP 伺服器複製 CA 憑證
-   scp /etc/openldap/certs/ca.crt user@redmine-host:/tmp/
+   # 從 FreeIPA 伺服器複製 CA 憑證
+   scp /etc/ipa/ca.crt user@redmine-host:/tmp/
    ```
 
 2. **設定 Redmine/GitLab LDAP 整合**
@@ -215,7 +235,7 @@ ls -lh /backup/ldap/
 
 ### SELinux 問題
 
-如果 slapd 無法正常運作，檢查 SELinux 日誌：
+如果 FreeIPA 服務無法正常運作，檢查 SELinux 日誌：
 
 ```bash
 ausearch -m avc -ts recent
@@ -223,11 +243,11 @@ ausearch -m avc -ts recent
 
 ### 憑證問題
 
-如果 LDAPS 連線失敗，檢查憑證權限：
+如果 LDAPS 連線失敗，檢查 FreeIPA CA 憑證：
 
 ```bash
-ls -la /etc/openldap/certs/
-# 確保 ldap 使用者可讀取憑證
+ls -la /etc/ipa/ca.crt
+# FreeIPA 自動管理憑證，通常不需要手動調整
 ```
 
 ### 防火牆問題
@@ -240,8 +260,8 @@ firewall-cmd --list-all --zone=public
 
 ## 安全注意事項
 
-1. **密碼管理**：強烈建議使用 `ansible-vault` 加密 `ldap_admin_password`
-2. **憑證安全**：確保憑證檔案權限正確（私鑰 600，憑證 644）
+1. **密碼管理**：強烈建議使用 `ansible-vault` 加密 `ipadm_password` 和 `ipaadmin_password`
+2. **憑證安全**：FreeIPA 自動管理憑證，確保 `/etc/ipa/` 目錄權限正確
 3. **網路隔離**：LDAP 伺服器應部署在內網，不直接暴露公網
 4. **定期更新**：定期執行 security updates
 5. **備份驗證**：定期測試備份還原流程
@@ -249,7 +269,8 @@ firewall-cmd --list-all --zone=public
 ## 參考文件
 
 - [PRD v1.7](docs/openldap_prd_v1.7.md)
-- [OpenLDAP 官方文件](https://www.openldap.org/doc/)
+- [FreeIPA 官方文件](https://www.freeipa.org/page/Documentation)
+- [FreeIPA Ansible Collection](https://github.com/freeipa/ansible-freeipa)
 - [Ansible 文件](https://docs.ansible.com/)
 
 ## 授權

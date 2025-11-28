@@ -1,32 +1,36 @@
 ---
-# OpenLDAP 基本設定
-ldap_base_dn: 'dc=qctrd,dc=qct'
-ldap_organization: 'QCTRD'
+# FreeIPA 基本設定
+ipa_domain: 'qctrd.qct'
+ipa_realm: 'QCTRD.QCT'
+ipa_organization: 'QCTRD'
+ldap_base_dn: 'dc=qctrd,dc=qct' # 保留用於相容性
 ldap_domain_components:
   - 'qctrd'
   - 'qct'
 
-# LDAP 管理員設定
-ldap_admin_dn: 'cn=admin,{{ ldap_base_dn }}'
-ldap_admin_password: 'CHANGE_ME_IN_VAULT' # 應使用 ansible-vault 加密
+# FreeIPA 管理員設定
+ipaadmin_password: 'CHANGE_ME_IN_VAULT' # 應使用 ansible-vault 加密
+ipadm_password: 'CHANGE_ME_IN_VAULT' # 應使用 ansible-vault 加密
+ldap_admin_dn: 'cn=Directory Manager' # FreeIPA 預設管理員 DN
+ldap_admin_password: '{{ ipadm_password }}' # 使用 FreeIPA DM 密碼
 
-# LDAP 服務設定
+# FreeIPA 服務設定
+ipaserver_hostname: '{{ inventory_hostname }}'
+ipaserver_ip: '{{ ansible_default_ipv4.address }}'
 ldap_server_hostname: '{{ inventory_hostname }}'
 ldap_ldaps_port: 636
-ldap_ldap_port: 389 # 僅用於 StartTLS，不直接暴露
+ldap_ldap_port: 389
 
-# OU 結構
-ldap_ou_people: 'ou=People,{{ ldap_base_dn }}'
-ldap_ou_groups: 'ou=Groups,{{ ldap_base_dn }}'
-ldap_ou_service_accounts: 'ou=ServiceAccounts,{{ ldap_base_dn }}'
+# FreeIPA 功能設定
+ipaserver_setup_dns: false # 不使用 FreeIPA DNS
+ipaserver_setup_firewalld: false # 由 security role 管理
+ipaserver_auto_forwarders: false
+ipaserver_no_ntp: false # 使用系統 NTP
 
-# 憑證設定
-ldap_cert_dir: '/etc/openldap/certs'
-ldap_cert_validity_days: 1095 # 3 年
-ldap_cert_country: 'TW'
-ldap_cert_state: 'Taiwan'
-ldap_cert_locality: 'Taoyuan'
-ldap_cert_org: 'QCTRD'
+# OU 結構（FreeIPA 使用預設結構，但保留變數用於相容性）
+ldap_ou_people: 'cn=users,cn=accounts,{{ ldap_base_dn }}'
+ldap_ou_groups: 'cn=groups,cn=accounts,{{ ldap_base_dn }}'
+ldap_ou_service_accounts: 'cn=services,cn=accounts,{{ ldap_base_dn }}'
 
 # 備份設定
 ldap_backup_dir: '/backup/ldap'
@@ -36,7 +40,7 @@ ldap_backup_cron_hour: 2 # 凌晨 2 點
 ldap_backup_cron_minute: 0
 
 # 日誌設定
-ldap_log_dir: '/var/log/openldap'
+ldap_log_dir: '/var/log/ipa'
 ldap_log_retention_days: 90
 
 # 監控設定

@@ -1,6 +1,17 @@
 ---
-- name: restart slapd
-  ansible.builtin.systemd:
-    name: slapd
-    state: restarted
+- name: Wait for IPA ready
+  ansible.builtin.wait_for:
+    port: '{{ ldap_ldaps_port }}'
+    delay: 10
+    timeout: 300
 
+- name: Restart IPA
+  ansible.builtin.systemd:
+    name: '{{ item }}'
+    state: restarted
+  loop:
+    - dirsrv@{{ ipa_realm | lower }}
+    - httpd
+    - krb5kdc
+    - kadmin
+    - ipa_memcached

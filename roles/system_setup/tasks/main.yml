@@ -7,11 +7,11 @@
 - name: 更新系統套件（僅 security updates）
   ansible.builtin.dnf:
     name: "*"
-    state: latest
-    security: yes
-    update_cache: yes
-  register: dnf_update_result
-  changed_when: dnf_update_result.changed
+    state: present
+    security: true
+    update_cache: true
+  register: system_setup_dnf_update_result
+  changed_when: system_setup_dnf_update_result.changed
 
 - name: 安裝必要套件
   ansible.builtin.dnf:
@@ -27,14 +27,14 @@
     state: present
 
 - name: 設定時區
-  ansible.builtin.timezone:
-    name: "{{ timezone }}"
+  community.general.timezone:
+    name: '{{ timezone }}'
 
 - name: 確保 chronyd 服務已啟動並啟用
   ansible.builtin.systemd:
     name: chronyd
     state: started
-    enabled: yes
+    enabled: true
 
 - name: 設定 NTP servers
   ansible.builtin.lineinfile:
@@ -43,7 +43,7 @@
     line: "pool {{ item }} iburst"
     state: present
   loop: "{{ ntp_servers }}"
-  notify: restart chronyd
+  notify: Restart chronyd
 
 - name: 確保 SELinux 處於 Enforcing 模式
   ansible.posix.selinux:
@@ -52,10 +52,9 @@
 
 - name: 檢查 SELinux 狀態
   ansible.builtin.command: getenforce
-  register: selinux_status
+  register: system_setup_selinux_status
   changed_when: false
 
 - name: 顯示 SELinux 狀態
   ansible.builtin.debug:
-    msg: "SELinux 目前狀態: {{ selinux_status.stdout }}"
-
+    msg: "SELinux 目前狀態: {{ system_setup_selinux_status.stdout }}"
