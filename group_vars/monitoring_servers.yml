@@ -1,0 +1,9 @@
+---
+# 監控服務器專用變數
+
+# Prometheus 資料來源配置（用於 Grafana）
+prometheus_datasource_url: 'http://localhost:{{ prometheus_port }}'
+
+# LDAP 服務器列表（用於 Prometheus scrape 配置）
+# 此變數將在 playbook 中動態設定
+

@@ -1,0 +1,66 @@
+---
+# Prometheus SELinux 設定
+
+- name: 檢查 SELinux 狀態
+  ansible.builtin.command: getenforce
+  register: selinux_enforce_status
+  changed_when: false
+  failed_when: false
+
+- name: 確保 policycoreutils-python-utils 已安裝（用於 semanage）
+  ansible.builtin.dnf:
+    name: policycoreutils-python-utils
+    state: present
+  when: selinux_enforce_status.stdout == "Enforcing"
+
+- name: 檢查 Prometheus 目錄是否存在
+  ansible.builtin.stat:
+    path: '{{ item }}'
+  loop:
+    - '{{ prometheus_install_dir }}'
+    - '{{ prometheus_data_dir }}'
+    - '{{ prometheus_config_dir }}'
+  register: prometheus_dir_stat
+  when: selinux_enforce_status.stdout == "Enforcing"
+
+- name: 應用 Prometheus 目錄的 SELinux context
+  ansible.builtin.command: restorecon -R '{{ item.item }}'
+  loop: '{{ prometheus_dir_stat.results }}'
+  when: 
+    - selinux_enforce_status.stdout == "Enforcing"
+    - item.stat.exists
+  changed_when: false
+  failed_when: false
+
+- name: 檢查 Prometheus port 是否已有 SELinux 標籤
+  ansible.builtin.command: semanage port -l | grep -E "{{ prometheus_port }}\s+tcp"
+  register: prometheus_port_check
+  changed_when: false
+  failed_when: false
+  when: 
+    - selinux_enforce_status.stdout == "Enforcing"
+    - prometheus_port != 9090  # 9090 是 Prometheus 預設 port，通常已有標籤
+
+- name: 設定 Prometheus port SELinux 標籤（如果使用非標準 port）
+  ansible.builtin.command: >
+    semanage port -a -t http_port_t -p tcp {{ prometheus_port }}
+  register: prometheus_port_label
+  changed_when: prometheus_port_label.rc == 0
+  failed_when: 
+    - prometheus_port_label.rc != 0
+    - "'已定義' not in prometheus_port_label.stderr"
+    - "'Already defined' not in prometheus_port_label.stderr"
+  when: 
+    - selinux_enforce_status.stdout == "Enforcing"
+    - prometheus_port != 9090
+    - prometheus_port_check.rc != 0
+
+- name: 驗證 SELinux 設定
+  ansible.builtin.command: getenforce
+  register: selinux_final_status
+  changed_when: false
+
+- name: 顯示 SELinux 狀態
+  ansible.builtin.debug:
+    msg: "SELinux 狀態: {{ selinux_final_status.stdout }}"
+

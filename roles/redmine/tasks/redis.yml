@@ -1,0 +1,78 @@
+---
+# Redis 從源碼編譯安裝
+
+- name: 檢查 Redis 是否已安裝
+  ansible.builtin.command: '{{ redis_install_dir }}/bin/redis-server --version'
+  register: redis_version_check
+  changed_when: false
+  failed_when: false
+
+- name: 下載 Redis 源碼
+  ansible.builtin.get_url:
+    url: 'https://download.redis.io/releases/redis-{{ redis_version }}.tar.gz'
+    dest: '{{ build_dir }}/redis-{{ redis_version }}.tar.gz'
+    mode: '0644'
+  when: redis_version_check.rc != 0
+
+- name: 解壓縮 Redis 源碼
+  ansible.builtin.unarchive:
+    src: '{{ build_dir }}/redis-{{ redis_version }}.tar.gz'
+    dest: '{{ build_dir }}'
+    remote_src: true
+    creates: '{{ build_dir }}/redis-{{ redis_version }}'
+  when: redis_version_check.rc != 0
+
+- name: 編譯 Redis
+  ansible.builtin.command: make -j{{ ansible_processor_vcpus | default(4) }}
+  args:
+    chdir: '{{ build_dir }}/redis-{{ redis_version }}'
+  when: redis_version_check.rc != 0
+
+- name: 安裝 Redis
+  ansible.builtin.command: make PREFIX={{ redis_install_dir }} install
+  args:
+    chdir: '{{ build_dir }}/redis-{{ redis_version }}'
+  when: redis_version_check.rc != 0
+  notify: apply selinux context
+
+- name: 建立 Redis 配置目錄
+  ansible.builtin.file:
+    path: '{{ redis_config_dir }}'
+    state: directory
+    owner: '{{ redmine_user }}'
+    group: '{{ redmine_group }}'
+    mode: '0755'
+
+- name: 建立 Redis 配置文件
+  ansible.builtin.template:
+    src: redis.conf.j2
+    dest: '{{ redis_config_dir }}/redis.conf'
+    owner: '{{ redmine_user }}'
+    group: '{{ redmine_group }}'
+    mode: '0640'
+  notify: restart redis
+
+- name: 建立 Redis systemd service
+  ansible.builtin.template:
+    src: redis.service.j2
+    dest: /etc/systemd/system/redis.service
+    owner: root
+    group: root
+    mode: '0644'
+  notify:
+    - reload systemd
+    - restart redis
+
+- name: 重新載入 systemd
+  ansible.builtin.systemd:
+    daemon_reload: true
+
+- name: 驗證 Redis 安裝
+  ansible.builtin.command: '{{ redis_install_dir }}/bin/redis-server --version'
+  register: redis_final_check
+  changed_when: false
+
+- name: 顯示 Redis 版本
+  ansible.builtin.debug:
+    msg: "Redis 版本: {{ redis_final_check.stdout }}"
+

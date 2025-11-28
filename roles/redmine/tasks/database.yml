@@ -1,0 +1,98 @@
+---
+# PostgreSQL 16 資料庫伺服器安裝
+
+- name: 安裝 PostgreSQL 16 repository
+  ansible.builtin.dnf:
+    name: https://download.postgresql.org/pub/repos/yum/reporpms/EL-{{ ansible_distribution_major_version }}-x86_64/pgdg-redhat-repo-latest.noarch.rpm
+    state: present
+
+- name: 安裝 PostgreSQL 16 伺服器
+  ansible.builtin.dnf:
+    name:
+      - postgresql16-server
+      - postgresql16
+      - postgresql16-contrib
+      - python3-psycopg2
+    state: present
+
+- name: 初始化 PostgreSQL 資料庫
+  ansible.builtin.command: /usr/pgsql-16/bin/postgresql-16-setup initdb
+  args:
+    creates: /var/lib/pgsql/16/data/PG_VERSION
+  register: postgresql_init
+  changed_when: postgresql_init.rc == 0
+
+- name: 啟動並啟用 PostgreSQL
+  ansible.builtin.systemd:
+    name: postgresql-16
+    state: started
+    enabled: true
+
+- name: 等待 PostgreSQL 就緒
+  ansible.builtin.wait_for:
+    path: /var/run/postgresql/.s.PGSQL.5432
+    delay: 2
+    timeout: 30
+
+- name: 建立 Redmine 資料庫使用者（與系統使用者同名以支援 peer 認證）
+  community.postgresql.postgresql_user:
+    name: '{{ redmine_db_user }}'
+    password: '{{ redmine_db_password }}'
+    state: present
+    login_user: postgres
+    login_host: localhost
+    login_unix_socket: /var/run/postgresql/.s.PGSQL.5432
+
+- name: 建立 Redmine 資料庫
+  community.postgresql.postgresql_db:
+    name: '{{ redmine_db_name }}'
+    owner: '{{ redmine_db_user }}'
+    state: present
+    login_user: postgres
+    login_host: localhost
+    login_unix_socket: /var/run/postgresql/.s.PGSQL.5432
+
+- name: 授予 Redmine 使用者所有權限
+  ansible.builtin.command: /usr/pgsql-16/bin/psql -U postgres -d {{ redmine_db_name }} -c "GRANT ALL PRIVILEGES ON DATABASE {{ redmine_db_name }} TO {{ redmine_db_user }};"
+  register: grant_privileges
+  changed_when: "'GRANT' in grant_privileges.stdout"
+
+- name: 確保 PostgreSQL socket 目錄存在
+  ansible.builtin.file:
+    path: /var/run/postgresql
+    state: directory
+    owner: postgres
+    group: postgres
+    mode: '0755'
+
+- name: 檢查 pg_hba.conf 是否已有 local all all peer 設定
+  ansible.builtin.lineinfile:
+    path: /var/lib/pgsql/16/data/pg_hba.conf
+    regexp: '^local\s+all\s+all\s+peer'
+    line: 'local    all             all                                     peer'
+    backup: true
+    state: present
+
+- name: 設定 PostgreSQL 允許 Redmine 使用者 socket 連線
+  ansible.builtin.lineinfile:
+    path: /var/lib/pgsql/16/data/pg_hba.conf
+    regexp: '^local\s+{{ redmine_db_name }}\s+{{ redmine_db_user }}\s+peer'
+    line: 'local    {{ redmine_db_name }}    {{ redmine_db_user }}                            peer'
+    backup: true
+    state: present
+    insertafter: '^local\s+all\s+all\s+peer'
+
+- name: 重新載入 PostgreSQL 配置
+  ansible.builtin.command: /usr/pgsql-16/bin/pg_ctl reload -D /var/lib/pgsql/16/data
+  changed_when: true
+  register: postgresql_reload
+
+- name: 驗證 PostgreSQL socket 連線
+  ansible.builtin.command: /usr/pgsql-16/bin/psql -U {{ redmine_db_user }} -d {{ redmine_db_name }} -c "SELECT version();"
+  register: postgresql_socket_test
+  changed_when: false
+  failed_when: postgresql_socket_test.rc != 0
+  environment:
+    PGHOST: ''
+    PGUSER: '{{ redmine_db_user }}'
+

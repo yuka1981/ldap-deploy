@@ -1,0 +1,20 @@
+[Unit]
+Description=The nginx HTTP and reverse proxy server
+After=network.target remote-fs.target nss-lookup.target
+
+[Service]
+Type=forking
+PIDFile=/var/run/nginx/nginx.pid
+ExecStartPre={{ nginx_install_dir }}/sbin/nginx -t
+ExecStart={{ nginx_install_dir }}/sbin/nginx
+ExecReload=/bin/kill -s HUP $MAINPID
+ExecStop=/bin/kill -s QUIT $MAINPID
+TimeoutStopSec=5
+KillMode=mixed
+PrivateTmp=true
+RuntimeDirectory=nginx
+RuntimeDirectoryMode=0755
+
+[Install]
+WantedBy=multi-user.target
+

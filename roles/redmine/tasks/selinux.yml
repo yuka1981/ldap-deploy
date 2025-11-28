@@ -1,0 +1,101 @@
+---
+# Redmine SELinux 設定
+
+- name: 檢查 SELinux 狀態
+  ansible.builtin.command: getenforce
+  register: selinux_enforce_status
+  changed_when: false
+  failed_when: false
+
+- name: 確保 policycoreutils-python-utils 已安裝
+  ansible.builtin.dnf:
+    name: policycoreutils-python-utils
+    state: present
+  when: selinux_enforce_status.stdout == "Enforcing"
+
+- name: 應用 Redmine 目錄的 SELinux context
+  ansible.builtin.command: restorecon -R '{{ item }}'
+  loop:
+    - '{{ redmine_home }}'
+    - '{{ redmine_app_dir }}'
+    - '{{ redmine_data_dir }}'
+    - '{{ redmine_log_dir }}'
+    - '{{ ruby_install_dir }}'
+    - '{{ redis_install_dir }}'
+    - '{{ redis_data_dir }}'
+    - '{{ redis_log_dir }}'
+    - '{{ nginx_install_dir }}'
+    - '{{ nginx_log_dir }}'
+    - '{{ nginx_config_dir }}'
+    - '{{ postgresql_data_dir }}'
+    - '/var/run/postgresql'
+  when: selinux_enforce_status.stdout == "Enforcing"
+  changed_when: false
+
+- name: 設定 SELinux boolean 允許 HTTP 服務
+  ansible.posix.seboolean:
+    name: '{{ item }}'
+    state: true
+    persistent: true
+  loop:
+    - httpd_can_network_connect
+    - httpd_can_network_connect_db
+    - httpd_execmem
+    - httpd_can_connect_postgresql
+  when: selinux_enforce_status.stdout == "Enforcing"
+
+- name: 檢查 Nginx port 是否已有 SELinux 標籤
+  ansible.builtin.command: semanage port -l | grep -E "{{ nginx_port }}\s+tcp"
+  register: nginx_port_check
+  changed_when: false
+  failed_when: false
+  when: 
+    - selinux_enforce_status.stdout == "Enforcing"
+    - nginx_port != 80
+
+- name: 設定 Nginx port SELinux 標籤（如果使用非標準 port）
+  ansible.builtin.command: >
+    semanage port -a -t http_port_t -p tcp {{ nginx_port }}
+  register: nginx_port_label
+  changed_when: nginx_port_label.rc == 0
+  failed_when: 
+    - nginx_port_label.rc != 0
+    - "'已定義' not in nginx_port_label.stderr"
+    - "'Already defined' not in nginx_port_label.stderr"
+  when: 
+    - selinux_enforce_status.stdout == "Enforcing"
+    - nginx_port != 80
+    - nginx_port_check.rc != 0
+
+- name: 檢查 Redis port 是否已有 SELinux 標籤
+  ansible.builtin.command: semanage port -l | grep -E "{{ redis_port }}\s+tcp"
+  register: redis_port_check
+  changed_when: false
+  failed_when: false
+  when: 
+    - selinux_enforce_status.stdout == "Enforcing"
+    - redis_port != 6379
+
+- name: 設定 Redis port SELinux 標籤（如果使用非標準 port）
+  ansible.builtin.command: >
+    semanage port -a -t redis_port_t -p tcp {{ redis_port }}
+  register: redis_port_label
+  changed_when: redis_port_label.rc == 0
+  failed_when: 
+    - redis_port_label.rc != 0
+    - "'已定義' not in redis_port_label.stderr"
+    - "'Already defined' not in redis_port_label.stderr"
+  when: 
+    - selinux_enforce_status.stdout == "Enforcing"
+    - redis_port != 6379
+    - redis_port_check.rc != 0
+
+- name: 驗證 SELinux 設定
+  ansible.builtin.command: getenforce
+  register: selinux_final_status
+  changed_when: false
+
+- name: 顯示 SELinux 狀態
+  ansible.builtin.debug:
+    msg: "SELinux 狀態: {{ selinux_final_status.stdout }}"
+

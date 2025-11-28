@@ -1,0 +1,13 @@
+# Redmine 資料庫配置
+# 自動生成於 {{ ansible_date_time.iso8601 }}
+# 使用 PostgreSQL socket 連線
+
+production:
+  adapter: postgresql
+  database: {{ redmine_db_name }}
+  username: {{ redmine_db_user }}
+  encoding: utf8
+  pool: {{ redmine_db_pool | default(5) }}
+  # 使用 socket 連線，不需要 host 和 port
+  # PostgreSQL socket 預設位置: /var/run/postgresql/.s.PGSQL.5432
+

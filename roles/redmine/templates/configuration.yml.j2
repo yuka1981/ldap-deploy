@@ -1,0 +1,31 @@
+# Redmine 配置檔案
+# 自動生成於 {{ ansible_date_time.iso8601 }}
+
+# LDAP 認證設定
+production:
+  ldap:
+    enabled: true
+    host: {{ ldap_server_hostname }}
+    port: {{ ldap_ldaps_port }}
+    ldaps: true
+    account: {{ ldap_admin_dn }}
+    account_password: {{ ldap_admin_password }}
+    base_dn: {{ ldap_base_dn }}
+    attribute_mapping:
+      login: uid
+      firstname: givenName
+      lastname: sn
+      mail: mail
+    onthefly_register: true
+
+# Email 設定（可選）
+# email_delivery:
+#   delivery_method: :smtp
+#   smtp_settings:
+#     address: smtp.example.com
+#     port: 587
+#     domain: example.com
+#     authentication: :plain
+#     user_name: "user@example.com"
+#     password: "password"
+

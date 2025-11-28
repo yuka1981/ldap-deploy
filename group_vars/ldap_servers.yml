@@ -2,6 +2,6 @@
 # LDAP 伺服器專用變數
 # 這些變數會覆蓋 all.yml 中的設定（如果需要）
 
-# 根據環境調整備份保留策略
-ldap_backup_retention_days: "{{ 30 if environment == 'production' else 7 }}"
+# 備份保留策略
+ldap_backup_retention_days: 30
 

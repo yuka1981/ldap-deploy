@@ -1,0 +1,27 @@
+---
+# Grafana 防火牆規則設定
+
+- name: 確保 firewalld 已安裝
+  ansible.builtin.dnf:
+    name: firewalld
+    state: present
+
+- name: 啟動並啟用 firewalld
+  ansible.builtin.systemd:
+    name: firewalld
+    state: started
+    enabled: true
+
+- name: 允許管理網段存取 Grafana
+  ansible.posix.firewalld:
+    zone: public
+    rich_rule: 'rule family="ipv4" source address="{{ item }}" port port="{{ grafana_port }}" protocol="tcp" accept'
+    permanent: true
+    immediate: true
+    state: enabled
+  loop: '{{ management_networks }}'
+
+- name: 重新載入 firewalld 規則
+  ansible.builtin.command: firewall-cmd --reload
+  changed_when: false
+

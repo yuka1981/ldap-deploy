@@ -1,0 +1,67 @@
+# Grafana 配置文件
+# 自動生成於 {{ ansible_date_time.iso8601 }}
+
+[paths]
+data = {{ grafana_data_dir }}
+logs = {{ grafana_log_dir }}
+plugins = {{ grafana_data_dir }}/plugins
+provisioning = {{ grafana_provisioning_dir }}
+
+[server]
+protocol = http
+http_addr = 0.0.0.0
+http_port = {{ grafana_port }}
+domain = {{ grafana_domain | default('localhost') }}
+root_url = %(protocol)s://%(domain)s:%(http_port)s/
+router_logging = false
+
+[database]
+type = sqlite3
+path = {{ grafana_data_dir }}/grafana.db
+
+[security]
+admin_user = {{ grafana_admin_user }}
+admin_password = {{ grafana_admin_password }}
+secret_key = {{ grafana_secret_key }}
+
+[users]
+allow_sign_up = false
+allow_org_create = false
+auto_assign_org = true
+auto_assign_org_role = Viewer
+
+[auth.anonymous]
+enabled = false
+
+[log]
+mode = file
+level = info
+
+[log.console]
+level = info
+
+[log.file]
+level = info
+log_rotate = true
+max_lines = 1000000
+max_size_shift = 28
+daily_rotate = true
+max_days = 7
+
+[datasources]
+default = prometheus
+
+[alerting]
+enabled = true
+execute_alerts = true
+
+[panels]
+enable_alpha = false
+
+[plugins]
+enable_alpha = false
+app_tls_skip_verify_insecure = false
+
+[enterprise]
+license_path =
+

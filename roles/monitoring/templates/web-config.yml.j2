@@ -1,0 +1,9 @@
+# Node Exporter Web Configuration
+# 自動生成於 {{ ansible_date_time.iso8601 }}
+
+{% if node_exporter_enable_tls | default(false) %}
+tls_server_config:
+  cert_file: {{ node_exporter_tls_cert }}
+  key_file: {{ node_exporter_tls_key }}
+{% endif %}
+

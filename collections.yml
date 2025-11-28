@@ -9,6 +9,8 @@ collections:
     version: ">=2.0.0"
   - name: community.general
     version: ">=7.0.0"
+  - name: community.postgresql
+    version: ">=2.0.0"
   - name: ansible.posix
     version: ">=1.5.0"
 

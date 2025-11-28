@@ -1,0 +1,136 @@
+---
+# Redmine 部署任務
+
+- name: 包含 SELinux 設定
+  ansible.builtin.include_tasks: selinux.yml
+
+- name: 安裝編譯依賴套件
+  ansible.builtin.dnf:
+    name:
+      - gcc
+      - gcc-c++
+      - make
+      - autoconf
+      - automake
+      - libtool
+      - openssl-devel
+      - readline-devel
+      - zlib-devel
+      - libyaml-devel
+      - libffi-devel
+      - ncurses-devel
+      - gdbm-devel
+      - db4-devel
+      - libdb-devel
+      - expat-devel
+      - pcre-devel
+      - pcre2-devel
+      - git
+      - wget
+      - curl
+      - tar
+      - bzip2
+      - patch
+      - which
+      - cmake
+      - gperf
+      - systemd-devel
+    state: present
+
+- name: 建立 Redmine 群組
+  ansible.builtin.group:
+    name: '{{ redmine_group }}'
+    system: true
+    state: present
+
+- name: 建立 Redmine 使用者
+  ansible.builtin.user:
+    name: '{{ redmine_user }}'
+    group: '{{ redmine_group }}'
+    system: true
+    shell: /bin/bash
+    home: '{{ redmine_home }}'
+    create_home: true
+
+- name: 建立 Redmine 目錄結構
+  ansible.builtin.file:
+    path: '{{ item }}'
+    state: directory
+    owner: '{{ redmine_user }}'
+    group: '{{ redmine_group }}'
+    mode: '0755'
+  loop:
+    - '{{ redmine_home }}'
+    - '{{ redmine_app_dir }}'
+    - '{{ redmine_data_dir }}'
+    - '{{ redmine_log_dir }}'
+    - '{{ redmine_tmp_dir }}'
+    - '{{ ruby_install_dir }}'
+    - '{{ redis_install_dir }}'
+    - '{{ redis_data_dir }}'
+    - '{{ redis_log_dir }}'
+    - '{{ nginx_install_dir }}'
+    - '{{ nginx_log_dir }}'
+    - '{{ nginx_config_dir }}'
+    - '{{ build_dir }}'
+
+- name: 從源碼編譯安裝 Ruby
+  ansible.builtin.include_tasks: ruby.yml
+
+- name: 安裝資料庫伺服器
+  ansible.builtin.include_tasks: database.yml
+
+- name: 從源碼編譯安裝 Redis
+  ansible.builtin.include_tasks: redis.yml
+
+- name: 從源碼編譯安裝 Nginx 和 Passenger
+  ansible.builtin.include_tasks: nginx_passenger.yml
+
+- name: 安裝 Redmine
+  ansible.builtin.include_tasks: redmine_install.yml
+
+- name: 配置 Nginx 虛擬主機
+  ansible.builtin.template:
+    src: nginx_redmine.conf.j2
+    dest: '{{ nginx_config_dir }}/conf.d/redmine.conf'
+    owner: root
+    group: root
+    mode: '0644'
+  notify: reload nginx
+
+- name: 驗證 Nginx 配置
+  ansible.builtin.command: '{{ nginx_install_dir }}/sbin/nginx -t'
+  register: nginx_config_check
+  changed_when: false
+  failed_when: nginx_config_check.rc != 0
+
+- name: 啟動並啟用服務
+  ansible.builtin.systemd:
+    name: '{{ item.name }}'
+    state: started
+    enabled: true
+  loop:
+    - name: redis
+    - name: nginx
+  notify: apply selinux context
+
+- name: 等待服務就緒
+  ansible.builtin.wait_for:
+    port: '{{ item.port }}'
+    delay: 2
+    timeout: 30
+  loop:
+    - port: '{{ redis_port }}'
+    - port: '{{ nginx_port }}'
+
+- name: 顯示部署狀態
+  ansible.builtin.debug:
+    msg:
+      - 'Redmine 已成功部署'
+      - 'Ruby 版本: {{ ruby_version }}'
+      - 'PostgreSQL 版本: {{ postgresql_version }}'
+      - 'Redis 版本: {{ redis_version }}'
+      - 'Nginx 版本: {{ nginx_version }}'
+      - 'Redmine URL: http://{{ ansible_default_ipv4.address }}:{{ nginx_port }}'
+      - '資料庫連線: PostgreSQL socket ({{ postgresql_socket_path }})'
+

@@ -4,14 +4,15 @@
     name: epel-release
     state: present
 
-- name: 更新系統套件（僅 security updates）
-  ansible.builtin.dnf:
-    name: "*"
-    state: present
-    security: true
-    update_cache: true
+- name: 更新套件快取
+  ansible.builtin.command: dnf makecache
+  changed_when: false
+
+- name: 更新系統套件（僅 security updates，跳過有問題的套件）
+  ansible.builtin.command: dnf upgrade --security -y --skip-broken
   register: system_setup_dnf_update_result
-  changed_when: system_setup_dnf_update_result.changed
+  changed_when: "'Nothing to do' not in system_setup_dnf_update_result.stdout and 'No packages marked for update' not in system_setup_dnf_update_result.stdout"
+  failed_when: false
 
 - name: 安裝必要套件
   ansible.builtin.dnf:
@@ -44,6 +45,26 @@
     state: present
   loop: "{{ ntp_servers }}"
   notify: Restart chronyd
+
+- name: 設定系統主機名（FQDN，僅限 LDAP 伺服器）
+  ansible.builtin.hostname:
+    name: '{{ inventory_hostname }}.{{ ipa_domain | default("local") }}'
+  when: ipa_domain is defined
+
+- name: 確保 /etc/hosts 包含主機名解析（FreeIPA 不使用 DNS）
+  ansible.builtin.lineinfile:
+    path: /etc/hosts
+    regexp: '^{{ ansible_default_ipv4.address }}\s+.*{{ inventory_hostname }}'
+    line: '{{ ansible_default_ipv4.address }}    {{ inventory_hostname }}.{{ ipa_domain | default("local") }} {{ inventory_hostname }}'
+    state: present
+    backup: true
+  when: ipa_domain is defined
+  register: hosts_file_updated
+
+- name: 顯示主機名設定
+  ansible.builtin.debug:
+    msg: "主機名已設定為: {{ inventory_hostname }}.{{ ipa_domain | default('local') }}"
+  when: ipa_domain is defined
 
 - name: 確保 SELinux 處於 Enforcing 模式
   ansible.posix.selinux:

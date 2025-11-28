@@ -38,7 +38,6 @@ ldap-prod:
 - `ldap_admin_password`: **必須使用 ansible-vault 加密**
 - `management_networks`: 管理網段列表
 - `redmine_hosts`: Redmine 主機 IP
-- `gitlab_hosts`: GitLab 主機 IP
 - `monitoring_hosts`: 監控主機 IP
 
 #### 使用 Ansible Vault 加密密碼
@@ -202,20 +201,16 @@ ldapadd -x -D "cn=admin,dc=qctrd,dc=qct" \
 
 ## 後續設定
 
-### 1. 匯出 CA 憑證給 Redmine/GitLab
+### 1. 匯出 CA 憑證給 Redmine
 
 ```bash
 # 從 LDAP 伺服器複製 CA 憑證
 scp /etc/openldap/certs/ca.crt user@redmine-host:/tmp/
 
-# 在 Redmine/GitLab 主機上
+# 在 Redmine 主機上
 # Redmine (Ruby)
 sudo cp /tmp/ca.crt /etc/pki/ca-trust/source/anchors/
 sudo update-ca-trust
-
-# GitLab (通常使用系統 CA store)
-sudo cp /tmp/ca.crt /etc/ssl/certs/
-sudo update-ca-certificates
 ```
 
 ### 2. 設定 Prometheus 抓取 node_exporter
@@ -228,7 +223,7 @@ scrape_configs:
     static_configs:
       - targets:
         - 'ldap-prod:9100'
-        - 'ldap-test:9100'
+        - 'ldap:9100'
 ```
 
 ### 3. 建立 Grafana 儀表板

@@ -1,0 +1,75 @@
+---
+# Ruby 從源碼編譯安裝
+
+- name: 檢查 Ruby 是否已安裝
+  ansible.builtin.command: '{{ ruby_install_dir }}/bin/ruby --version'
+  register: ruby_version_check
+  changed_when: false
+  failed_when: false
+
+- name: 計算 Ruby 版本目錄
+  ansible.builtin.set_fact:
+    ruby_version_dir: "{{ (ruby_version.split('.')[:2] | join('.')) }}"
+
+- name: 下載 Ruby 源碼
+  ansible.builtin.get_url:
+    url: 'https://cache.ruby-lang.org/pub/ruby/{{ ruby_version_dir }}/ruby-{{ ruby_version }}.tar.gz'
+    dest: '{{ build_dir }}/ruby-{{ ruby_version }}.tar.gz'
+    mode: '0644'
+  when: ruby_version_check.rc != 0
+
+- name: 解壓縮 Ruby 源碼
+  ansible.builtin.unarchive:
+    src: '{{ build_dir }}/ruby-{{ ruby_version }}.tar.gz'
+    dest: '{{ build_dir }}'
+    remote_src: true
+    creates: '{{ build_dir }}/ruby-{{ ruby_version }}'
+  when: ruby_version_check.rc != 0
+
+- name: 配置 Ruby 編譯選項
+  ansible.builtin.command: >
+    ./configure
+    --prefix={{ ruby_install_dir }}
+    --enable-shared
+    --disable-install-doc
+    --with-openssl-dir=/usr
+  args:
+    chdir: '{{ build_dir }}/ruby-{{ ruby_version }}'
+  when: ruby_version_check.rc != 0
+
+- name: 編譯 Ruby
+  ansible.builtin.command: make -j{{ ansible_processor_vcpus | default(4) }}
+  args:
+    chdir: '{{ build_dir }}/ruby-{{ ruby_version }}'
+  when: ruby_version_check.rc != 0
+
+- name: 安裝 Ruby
+  ansible.builtin.command: make install
+  args:
+    chdir: '{{ build_dir }}/ruby-{{ ruby_version }}'
+  when: ruby_version_check.rc != 0
+  notify: apply selinux context
+
+- name: 更新 PATH 環境變數
+  ansible.builtin.lineinfile:
+    path: /etc/profile.d/ruby.sh
+    line: 'export PATH={{ ruby_install_dir }}/bin:$PATH'
+    create: true
+    mode: '0644'
+
+- name: 安裝 Bundler
+  ansible.builtin.command: '{{ ruby_install_dir }}/bin/gem install bundler --no-document'
+  environment:
+    PATH: '{{ ruby_install_dir }}/bin:{{ ansible_env.PATH }}'
+  register: bundler_install
+  changed_when: "'already installed' not in bundler_install.stdout"
+
+- name: 驗證 Ruby 安裝
+  ansible.builtin.command: '{{ ruby_install_dir }}/bin/ruby --version'
+  register: ruby_final_check
+  changed_when: false
+
+- name: 顯示 Ruby 版本
+  ansible.builtin.debug:
+    msg: "Ruby 版本: {{ ruby_final_check.stdout }}"
+

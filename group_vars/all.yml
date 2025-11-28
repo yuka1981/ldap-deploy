@@ -2,11 +2,7 @@
 # FreeIPA 基本設定
 ipa_domain: 'qctrd.qct'
 ipa_realm: 'QCTRD.QCT'
-ipa_organization: 'QCTRD'
 ldap_base_dn: 'dc=qctrd,dc=qct' # 保留用於相容性
-ldap_domain_components:
-  - 'qctrd'
-  - 'qct'
 
 # FreeIPA 管理員設定
 ipaadmin_password: 'CHANGE_ME_IN_VAULT' # 應使用 ansible-vault 加密
@@ -15,22 +11,17 @@ ldap_admin_dn: 'cn=Directory Manager' # FreeIPA 預設管理員 DN
 ldap_admin_password: '{{ ipadm_password }}' # 使用 FreeIPA DM 密碼
 
 # FreeIPA 服務設定
-ipaserver_hostname: '{{ inventory_hostname }}'
+# 主機名必須是 FQDN 格式（例如：ldap.qctrd.qct）
+ipaserver_hostname: '{{ inventory_hostname }}.{{ ipa_domain }}'
 ipaserver_ip: '{{ ansible_default_ipv4.address }}'
-ldap_server_hostname: '{{ inventory_hostname }}'
+ldap_server_hostname: '{{ inventory_hostname }}.{{ ipa_domain }}'
 ldap_ldaps_port: 636
-ldap_ldap_port: 389
 
 # FreeIPA 功能設定
 ipaserver_setup_dns: false # 不使用 FreeIPA DNS
 ipaserver_setup_firewalld: false # 由 security role 管理
 ipaserver_auto_forwarders: false
 ipaserver_no_ntp: false # 使用系統 NTP
-
-# OU 結構（FreeIPA 使用預設結構，但保留變數用於相容性）
-ldap_ou_people: 'cn=users,cn=accounts,{{ ldap_base_dn }}'
-ldap_ou_groups: 'cn=groups,cn=accounts,{{ ldap_base_dn }}'
-ldap_ou_service_accounts: 'cn=services,cn=accounts,{{ ldap_base_dn }}'
 
 # 備份設定
 ldap_backup_dir: '/backup/ldap'
@@ -39,15 +30,103 @@ ldap_backup_monthly_retention_months: 6
 ldap_backup_cron_hour: 2 # 凌晨 2 點
 ldap_backup_cron_minute: 0
 
-# 日誌設定
-ldap_log_dir: '/var/log/ipa'
-ldap_log_retention_days: 90
-
 # 監控設定
 node_exporter_version: '1.7.0'
 node_exporter_port: 9100
 node_exporter_user: 'node_exporter'
 node_exporter_group: 'node_exporter'
+node_exporter_config_dir: '/etc/node_exporter'
+node_exporter_web_config: '{{ node_exporter_config_dir }}/web-config.yml'
+node_exporter_tls_cert: '{{ node_exporter_config_dir }}/node_exporter.crt'
+node_exporter_tls_key: '{{ node_exporter_config_dir }}/node_exporter.key'
+node_exporter_ca_cert: '{{ node_exporter_config_dir }}/ca.crt'  # CA 憑證（用於驗證目標 server）
+node_exporter_enable_tls: true  # 啟用 TLS（使用自簽憑證）
+node_exporter_ca_dir: '/etc/node_exporter/ca'  # CA 憑證目錄（僅在 monitoring server）
+prometheus_tls_ca_cert: '{{ prometheus_config_dir }}/ca.crt'  # Prometheus 使用的 CA 憑證（用於驗證目標 server）
+
+# Prometheus 設定
+prometheus_version: '2.48.0'
+prometheus_port: 9090
+prometheus_user: 'prometheus'
+prometheus_group: 'prometheus'
+prometheus_install_dir: '/opt/prometheus'
+prometheus_data_dir: '/var/lib/prometheus'
+prometheus_config_dir: '/etc/prometheus'
+prometheus_retention: '30d'
+prometheus_cluster_name: 'qct-monitoring'
+
+# Grafana 設定
+grafana_version: '10.4.2'
+grafana_port: 3000
+grafana_user: 'grafana'
+grafana_group: 'grafana'
+grafana_install_dir: '/opt/grafana'
+grafana_data_dir: '/var/lib/grafana'
+grafana_log_dir: '/var/log/grafana'
+grafana_config_dir: '/etc/grafana'
+grafana_provisioning_dir: '/etc/grafana/provisioning'
+grafana_admin_user: 'admin'
+grafana_admin_password: 'CHANGE_ME_IN_VAULT' # 應使用 ansible-vault 加密
+grafana_secret_key: 'CHANGE_ME_IN_VAULT' # 應使用 ansible-vault 加密，建議使用隨機字串
+grafana_domain: 'localhost'
+
+# Prometheus 防火牆設定
+prometheus_setup_firewall: true  # 預設啟用防火牆規則
+
+# Grafana 防火牆設定
+grafana_setup_firewall: true  # 預設啟用防火牆規則
+
+# Redmine 設定
+redmine_version: '5.1.2'
+redmine_user: 'redmine'
+redmine_group: 'redmine'
+redmine_home: '/var/lib/redmine'
+redmine_app_dir: '{{ redmine_home }}/redmine-{{ redmine_version }}'
+redmine_data_dir: '{{ redmine_home }}/data'
+redmine_log_dir: '/var/log/redmine'
+redmine_tmp_dir: '{{ redmine_app_dir }}/tmp'
+redmine_default_lang: 'zh-TW'
+redmine_server_name: '_'
+
+# Ruby 設定（從源碼編譯）
+ruby_version: '3.4.7'
+ruby_install_dir: '/opt/ruby'
+
+# Redis 設定（從源碼編譯）
+redis_version: '8.2.0'  # 使用 8.2.0 或更新版本
+redis_install_dir: '/opt/redis'
+redis_config_dir: '/etc/redis'
+redis_data_dir: '/var/lib/redis'
+redis_log_dir: '/var/log/redis'
+redis_port: 6379
+redis_maxmemory: '256mb'
+
+# Nginx 設定（從源碼編譯，使用 Passenger）
+nginx_version: 'latest'  # Passenger 會自動下載最新版本
+nginx_install_dir: '/opt/nginx'  # Nginx 二進制文件安裝目錄
+nginx_config_dir: '/etc/nginx'  # Nginx 配置目錄（標準路徑）
+nginx_log_dir: '/var/log/nginx'
+nginx_port: 80
+nginx_ssl_port: 443  # SSL 端口
+nginx_ssl_cert_path: '/etc/nginx/ssl/redmine.crt'  # SSL 憑證路徑
+nginx_ssl_key_path: '/etc/nginx/ssl/redmine.key'  # SSL 私鑰路徑
+nginx_enable_ssl: false  # 是否啟用 SSL（預設關閉）
+passenger_max_pool_size: 6
+passenger_min_instances: 1
+passenger_spawn_method: 'smart'
+
+# Redmine 資料庫設定（PostgreSQL 16，使用 socket 連線）
+redmine_db_adapter: 'postgresql'
+redmine_db_name: 'redmine'
+redmine_db_user: 'redmine'
+redmine_db_password: 'CHANGE_ME_IN_VAULT'  # 應使用 ansible-vault 加密（socket 連線時仍需要設定，但不會使用）
+redmine_db_pool: 5
+postgresql_version: '16'
+postgresql_data_dir: '/var/lib/pgsql/16/data'
+postgresql_socket_path: '/var/run/postgresql/.s.PGSQL.5432'
+
+# 編譯目錄
+build_dir: '/tmp/build'
 
 # 系統設定
 timezone: 'Asia/Taipei'

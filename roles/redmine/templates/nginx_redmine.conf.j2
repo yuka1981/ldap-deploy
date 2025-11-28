@@ -1,0 +1,91 @@
+# Redmine Nginx 虛擬主機配置
+# 自動生成於 {{ ansible_date_time.iso8601 }}
+
+{% if nginx_enable_ssl | default(false) %}
+# HTTPS 伺服器區塊
+server {
+    listen {{ nginx_ssl_port | default(443) }} ssl http2;
+    server_name {{ redmine_server_name | default('_') }};
+    root {{ redmine_app_dir }}/public;
+
+    # SSL 憑證設定
+    ssl_certificate {{ nginx_ssl_cert_path | default('/etc/nginx/ssl/redmine.crt') }};
+    ssl_certificate_key {{ nginx_ssl_key_path | default('/etc/nginx/ssl/redmine.key') }};
+
+    # SSL 安全設定
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers 'ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:DHE-RSA-AES128-GCM-SHA256:DHE-RSA-AES256-GCM-SHA384';
+    ssl_prefer_server_ciphers off;
+    ssl_session_cache shared:SSL:10m;
+    ssl_session_timeout 10m;
+    ssl_session_tickets off;
+
+    # HSTS (HTTP Strict Transport Security)
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+
+    passenger_enabled on;
+    passenger_app_env production;
+
+    # 日誌設定
+    access_log {{ nginx_log_dir }}/redmine_ssl_access.log;
+    error_log {{ nginx_log_dir }}/redmine_ssl_error.log;
+
+    # 靜態檔案快取
+    location ~* \.(jpg|jpeg|gif|css|png|js|ico|html|xml|txt)$ {
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+    }
+
+    # 安全標頭
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-XSS-Protection "1; mode=block" always;
+
+    # 禁止存取隱藏檔案
+    location ~ /\. {
+        deny all;
+        access_log off;
+        log_not_found off;
+    }
+}
+
+# HTTP 重定向到 HTTPS
+server {
+    listen {{ nginx_port | default(80) }};
+    server_name {{ redmine_server_name | default('_') }};
+    return 301 https://$host$request_uri;
+}
+{% else %}
+# HTTP 伺服器區塊
+server {
+    listen {{ nginx_port | default(80) }};
+    server_name {{ redmine_server_name | default('_') }};
+    root {{ redmine_app_dir }}/public;
+
+    passenger_enabled on;
+    passenger_app_env production;
+
+    # 日誌設定
+    access_log {{ nginx_log_dir }}/redmine_access.log;
+    error_log {{ nginx_log_dir }}/redmine_error.log;
+
+    # 靜態檔案快取
+    location ~* \.(jpg|jpeg|gif|css|png|js|ico|html|xml|txt)$ {
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+    }
+
+    # 安全標頭
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-XSS-Protection "1; mode=block" always;
+
+    # 禁止存取隱藏檔案
+    location ~ /\. {
+        deny all;
+        access_log off;
+        log_not_found off;
+    }
+}
+{% endif %}
+

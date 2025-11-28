@@ -1,0 +1,33 @@
+---
+- name: reload systemd
+  ansible.builtin.systemd:
+    daemon_reload: true
+
+- name: restart redis
+  ansible.builtin.systemd:
+    name: redis
+    state: restarted
+
+- name: restart nginx
+  ansible.builtin.systemd:
+    name: nginx
+    state: restarted
+
+- name: reload nginx
+  ansible.builtin.systemd:
+    name: nginx
+    state: reloaded
+
+- name: apply selinux context
+  ansible.builtin.command: restorecon -R '{{ item }}'
+  loop:
+    - '{{ redmine_home }}'
+    - '{{ redmine_app_dir }}'
+    - '{{ ruby_install_dir }}'
+    - '{{ redis_install_dir }}'
+    - '{{ nginx_install_dir }}'
+    - '{{ postgresql_data_dir }}'
+    - '/var/run/postgresql'
+  changed_when: false
+  when: ansible_selinux is defined and ansible_selinux.status == "enabled"
+

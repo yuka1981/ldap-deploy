@@ -1,0 +1,30 @@
+# Redis 配置文件
+# 自動生成於 {{ ansible_date_time.iso8601 }}
+
+# 網路設定
+bind 127.0.0.1
+port {{ redis_port }}
+protected-mode yes
+
+# 一般設定
+daemonize no
+supervised systemd
+pidfile /var/run/redis/redis-server.pid
+loglevel notice
+logfile {{ redis_log_dir }}/redis.log
+
+# 資料持久化
+dir {{ redis_data_dir }}
+save 900 1
+save 300 10
+save 60 10000
+
+# 記憶體設定
+maxmemory {{ redis_maxmemory | default('256mb') }}
+maxmemory-policy allkeys-lru
+
+# 其他設定
+tcp-backlog 511
+timeout 0
+tcp-keepalive 300
+

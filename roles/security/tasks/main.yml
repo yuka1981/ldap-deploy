@@ -19,8 +19,7 @@
 - name: 允許管理網段 SSH 連線
   ansible.posix.firewalld:
     zone: public
-    source: '{{ item }}'
-    port: 22/tcp
+    rich_rule: 'rule family="ipv4" source address="{{ item }}" port port="22" protocol="tcp" accept'
     permanent: true
     immediate: true
     state: enabled
@@ -29,28 +28,16 @@
 - name: 允許 Redmine 主機連線 FreeIPA 服務
   ansible.posix.firewalld:
     zone: public
-    source: '{{ item }}/32'
-    port: '{{ ldap_ldaps_port }}/tcp'
+    rich_rule: 'rule family="ipv4" source address="{{ item }}" port port="{{ ldap_ldaps_port }}" protocol="tcp" accept'
     permanent: true
     immediate: true
     state: enabled
   loop: '{{ redmine_hosts }}'
 
-- name: 允許 GitLab 主機連線 FreeIPA 服務
-  ansible.posix.firewalld:
-    zone: public
-    source: '{{ item }}/32'
-    port: '{{ ldap_ldaps_port }}/tcp'
-    permanent: true
-    immediate: true
-    state: enabled
-  loop: '{{ gitlab_hosts }}'
-
 - name: 允許 FreeIPA Web UI (HTTPS)
   ansible.posix.firewalld:
     zone: public
-    source: '{{ item }}'
-    port: 443/tcp
+    rich_rule: 'rule family="ipv4" source address="{{ item }}" port port="443" protocol="tcp" accept'
     permanent: true
     immediate: true
     state: enabled
@@ -60,8 +47,7 @@
 - name: 允許監控主機連線（node_exporter）
   ansible.posix.firewalld:
     zone: public
-    source: '{{ item }}/32'
-    port: '{{ node_exporter_port }}/tcp'
+    rich_rule: 'rule family="ipv4" source address="{{ item }}" port port="{{ node_exporter_port }}" protocol="tcp" accept'
     permanent: true
     immediate: true
     state: enabled
