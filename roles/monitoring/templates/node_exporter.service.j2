@@ -1,0 +1,28 @@
+[Unit]
+Description=Node Exporter
+After=network.target
+
+[Service]
+Type=simple
+User={{ node_exporter_user }}
+Group={{ node_exporter_group }}
+ExecStart=/opt/node_exporter/node_exporter \
+    --web.listen-address=:{{ node_exporter_port }} \
+{% if node_exporter_enable_tls | default(false) %}
+    --web.config.file={{ node_exporter_web_config }} \
+{% endif %}
+    --collector.systemd \
+    --collector.processes \
+    --collector.filesystem \
+    --collector.diskstats \
+    --collector.meminfo \
+    --collector.cpu \
+    --collector.netstat \
+    --collector.netdev
+
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+

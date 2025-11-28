@@ -1,0 +1,46 @@
+# Nginx 主配置文件
+# 自動生成於 {{ ansible_date_time.iso8601 }}
+
+user {{ redmine_user }};
+worker_processes auto;
+pid /var/run/nginx/nginx.pid;
+
+events {
+    worker_connections 1024;
+    use epoll;
+}
+
+http {
+    include       {{ nginx_config_dir }}/mime.types;
+    default_type  application/octet-stream;
+
+    log_format main '$remote_addr - $remote_user [$time_local] "$request" '
+                    '$status $body_bytes_sent "$http_referer" '
+                    '"$http_user_agent" "$http_x_forwarded_for"';
+
+    access_log {{ nginx_log_dir }}/access.log main;
+    error_log {{ nginx_log_dir }}/error.log warn;
+
+    sendfile on;
+    tcp_nopush on;
+    tcp_nodelay on;
+    keepalive_timeout 65;
+    types_hash_max_size 2048;
+    client_max_body_size 50m;
+
+    gzip on;
+    gzip_vary on;
+    gzip_proxied any;
+    gzip_comp_level 6;
+    gzip_types text/plain text/css text/xml text/javascript application/json application/javascript application/xml+rss;
+
+    # Passenger 設定
+    passenger_root {{ ruby_install_dir }}/lib/ruby/gems/*/gems/passenger-*/;
+    passenger_ruby {{ ruby_install_dir }}/bin/ruby;
+    passenger_max_pool_size {{ passenger_max_pool_size | default(6) }};
+    passenger_min_instances {{ passenger_min_instances | default(1) }};
+    passenger_spawn_method {{ passenger_spawn_method | default('smart') }};
+
+    include {{ nginx_config_dir }}/conf.d/*.conf;
+}
+

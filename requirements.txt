@@ -1,0 +1,19 @@
+# Ansible 相關套件需求
+# 安裝方式: pip install -r requirements.txt
+
+# 基本需求
+ansible>=2.9
+ansible-core>=2.12
+
+# 用於 Rocky Linux / RHEL
+dnf>=4.0.0
+
+# 用於憑證管理
+cryptography>=3.0.0
+
+# Ansible Collections (使用 ansible-galaxy 安裝)
+# ansible-galaxy collection install freeipa.ansible_freeipa
+# ansible-galaxy collection install community.crypto
+# ansible-galaxy collection install community.general
+# ansible-galaxy collection install ansible.posix
+

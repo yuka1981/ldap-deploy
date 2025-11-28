@@ -1,0 +1,90 @@
+# Prometheus 配置文件
+# 自動生成於 {{ ansible_date_time.iso8601 }}
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    cluster: '{{ prometheus_cluster_name }}'
+
+# Alertmanager 配置（可選）
+# alerting:
+#   alertmanagers:
+#     - static_configs:
+#         - targets:
+#           - alertmanager:9093
+
+# 載入規則文件
+rule_files:
+  # - "first_rules.yml"
+  # - "second_rules.yml"
+
+# Scrape 配置
+scrape_configs:
+  # Prometheus 自身監控
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:{{ prometheus_port }}']
+        labels:
+          instance: '{{ inventory_hostname }}'
+          service: 'prometheus'
+
+  # Node Exporter - LDAP 伺服器
+{% if groups['ldap_servers'] is defined and groups['ldap_servers'] | length > 0 %}
+  - job_name: 'node_exporter_ldap'
+    scheme: https
+    tls_config:
+      ca_file: '{{ prometheus_tls_ca_cert }}'
+      insecure_skip_verify: false
+    static_configs:
+      - targets:
+{% for host in groups['ldap_servers'] %}
+{% if hostvars[host]['ansible_host'] is defined %}
+        - '{{ hostvars[host]['ansible_host'] }}:{{ node_exporter_port }}'
+{% elif hostvars[host]['ansible_default_ipv4'] is defined and hostvars[host]['ansible_default_ipv4']['address'] is defined %}
+        - '{{ hostvars[host]['ansible_default_ipv4']['address'] }}:{{ node_exporter_port }}'
+{% else %}
+        - '{{ host }}:{{ node_exporter_port }}'
+{% endif %}
+{% endfor %}
+        labels:
+          service: 'node_exporter'
+          server_type: 'ldap'
+{% endif %}
+
+  # Node Exporter - Redmine 伺服器
+{% if groups['redmine_servers'] is defined and groups['redmine_servers'] | length > 0 %}
+  - job_name: 'node_exporter_redmine'
+    scheme: https
+    tls_config:
+      ca_file: '{{ prometheus_tls_ca_cert }}'
+      insecure_skip_verify: false
+    static_configs:
+      - targets:
+{% for host in groups['redmine_servers'] %}
+{% if hostvars[host]['ansible_host'] is defined %}
+        - '{{ hostvars[host]['ansible_host'] }}:{{ node_exporter_port }}'
+{% elif hostvars[host]['ansible_default_ipv4'] is defined and hostvars[host]['ansible_default_ipv4']['address'] is defined %}
+        - '{{ hostvars[host]['ansible_default_ipv4']['address'] }}:{{ node_exporter_port }}'
+{% else %}
+        - '{{ host }}:{{ node_exporter_port }}'
+{% endif %}
+{% endfor %}
+        labels:
+          service: 'node_exporter'
+          server_type: 'redmine'
+{% endif %}
+
+  # Node Exporter - 監控伺服器自身
+  - job_name: 'node_exporter_local'
+    scheme: https
+    tls_config:
+      ca_file: '{{ prometheus_tls_ca_cert }}'
+      insecure_skip_verify: false
+    static_configs:
+      - targets: ['localhost:{{ node_exporter_port }}']
+        labels:
+          instance: '{{ inventory_hostname }}'
+          service: 'node_exporter'
+          server_type: 'monitoring'
+

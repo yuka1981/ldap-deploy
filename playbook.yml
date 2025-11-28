@@ -1,0 +1,138 @@
+---
+# FreeIPA 部署 Playbook
+# 根據 PRD v1.7 文件建立（使用 FreeIPA 取代 OpenLDAP）
+
+- name: 部署監控服務（優先執行，生成 CA 憑證）
+  hosts: monitoring_servers
+  become: true
+  gather_facts: true
+
+  roles:
+    - role: system_setup
+      tags:
+        - system
+        - setup
+        - monitoring
+
+    - role: monitoring
+      tags:
+        - monitoring
+        - node_exporter
+
+    - role: prometheus
+      tags:
+        - monitoring
+        - prometheus
+
+    - role: grafana
+      tags:
+        - monitoring
+        - grafana
+
+  post_tasks:
+    - name: 驗證監控服務狀態
+      ansible.builtin.systemd:
+        name: '{{ item }}'
+      register: monitoring_service_status
+      loop:
+        - node_exporter
+        - prometheus
+        - grafana
+      changed_when: false
+
+    - name: 顯示監控服務狀態
+      ansible.builtin.debug:
+        msg: "{{ item.name }}: {{ 'running' if item.status.ActiveState == 'active' else 'stopped' }}"
+      loop: '{{ monitoring_service_status.results }}'
+      loop_control:
+        label: '{{ item.name }}'
+
+- name: 部署 FreeIPA 生產環境
+  hosts: ldap_servers
+  become: true
+  gather_facts: true
+
+  roles:
+    - role: system_setup
+      tags:
+        - system
+        - setup
+
+    - role: security
+      tags:
+        - security
+        - firewall
+        - selinux
+
+    - role: openldap
+      tags:
+        - openldap
+        - ldap
+        - freeipa
+
+    - role: monitoring
+      tags:
+        - monitoring
+        - prometheus
+
+    - role: backup
+      tags:
+        - backup
+
+  post_tasks:
+    - name: 驗證所有服務狀態
+      ansible.builtin.systemd:
+        name: '{{ item }}'
+      register: all_service_status
+      loop:
+        - node_exporter
+        - firewalld
+      changed_when: false
+
+    - name: 顯示所有服務狀態
+      ansible.builtin.debug:
+        msg: "{{ item.name }}: {{ 'running' if item.status.ActiveState == 'active' else 'stopped' }}"
+      loop: '{{ all_service_status.results }}'
+      loop_control:
+        label: '{{ item.name }}'
+
+- name: 部署 Redmine 專案管理系統
+  hosts: redmine_servers
+  become: true
+  gather_facts: true
+
+  roles:
+    - role: system_setup
+      tags:
+        - system
+        - setup
+        - redmine
+
+    - role: monitoring
+      tags:
+        - monitoring
+        - node_exporter
+        - redmine
+
+    - role: redmine
+      tags:
+        - redmine
+
+  post_tasks:
+    - name: 驗證 Redmine 服務狀態
+      ansible.builtin.systemd:
+        name: '{{ item }}'
+      register: redmine_service_status
+      loop:
+        - node_exporter
+        - postgresql-16
+        - redis
+        - nginx
+      changed_when: false
+
+    - name: 顯示 Redmine 服務狀態
+      ansible.builtin.debug:
+        msg: "{{ item.name }}: {{ 'running' if item.status.ActiveState == 'active' else 'stopped' }}"
+      loop: '{{ redmine_service_status.results }}'
+      loop_control:
+        label: '{{ item.name }}'

@@ -1,0 +1,144 @@
+---
+- name: 建立 node_exporter 群組
+  ansible.builtin.group:
+    name: '{{ node_exporter_group }}'
+    system: true
+    state: present
+
+- name: 建立 node_exporter 使用者
+  ansible.builtin.user:
+    name: '{{ node_exporter_user }}'
+    group: '{{ node_exporter_group }}'
+    system: true
+    shell: /sbin/nologin
+    home: /var/lib/node_exporter
+    create_home: false
+
+- name: 建立 node_exporter 目錄
+  ansible.builtin.file:
+    path: '{{ item }}'
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  loop:
+    - /opt/node_exporter
+    - '{{ node_exporter_config_dir }}'
+
+- name: 生成 TLS 憑證
+  ansible.builtin.include_tasks: certificates.yml
+  when: node_exporter_enable_tls | default(true)
+
+- name: 設定 node_exporter 下載 URL
+  ansible.builtin.set_fact:
+    monitoring_node_exporter_url: >-
+      https://github.com/prometheus/node_exporter/releases/download/
+      v{{ node_exporter_version }}/node_exporter-{{ node_exporter_version }}.linux-amd64.tar.gz
+
+- name: 下載 node_exporter
+  ansible.builtin.get_url:
+    url: '{{ monitoring_node_exporter_url | replace(" ", "") }}'
+    dest: /tmp/node_exporter.tar.gz
+    mode: '0644'
+
+- name: 解壓縮 node_exporter
+  ansible.builtin.unarchive:
+    src: /tmp/node_exporter.tar.gz
+    dest: /opt/
+    remote_src: true
+    creates: /opt/node_exporter-{{ node_exporter_version }}.linux-amd64
+
+- name: 建立 node_exporter 符號連結
+  ansible.builtin.file:
+    src: /opt/node_exporter-{{ node_exporter_version }}.linux-amd64/node_exporter
+    dest: /opt/node_exporter/node_exporter
+    state: link
+
+- name: 建立 node_exporter web 配置文件
+  ansible.builtin.template:
+    src: web-config.yml.j2
+    dest: '{{ node_exporter_web_config }}'
+    owner: root
+    group: root
+    mode: '0644'
+  when: node_exporter_enable_tls | default(true)
+  notify: restart node_exporter
+
+- name: 建立 node_exporter systemd service
+  ansible.builtin.template:
+    src: node_exporter.service.j2
+    dest: /etc/systemd/system/node_exporter.service
+    owner: root
+    group: root
+    mode: '0644'
+  notify: restart node_exporter
+
+- name: 重新載入 systemd（立即執行）
+  ansible.builtin.systemd:
+    daemon_reload: true
+
+- name: 啟動並啟用 node_exporter
+  ansible.builtin.systemd:
+    name: node_exporter
+    state: started
+    enabled: true
+
+- name: 檢查 node_exporter 服務狀態
+  ansible.builtin.systemd:
+    name: node_exporter
+  register: monitoring_node_exporter_status
+  changed_when: false
+
+- name: 顯示 node_exporter 服務狀態
+  ansible.builtin.debug:
+    msg: 'node_exporter 服務狀態: {{ monitoring_node_exporter_status.status.ActiveState }}'
+
+- name: 如果服務未運行，顯示日誌
+  ansible.builtin.command: journalctl -u node_exporter -n 20 --no-pager
+  register: monitoring_node_exporter_journal
+  when: monitoring_node_exporter_status.status.ActiveState != 'active'
+  changed_when: false
+  failed_when: false
+
+- name: 顯示 node_exporter 日誌（如果服務未運行）
+  ansible.builtin.debug:
+    var: monitoring_node_exporter_journal.stdout_lines
+  when: monitoring_node_exporter_status.status.ActiveState != 'active'
+
+- name: 等待 node_exporter 就緒
+  ansible.builtin.wait_for:
+    port: '{{ node_exporter_port }}'
+    host: '127.0.0.1'
+    delay: 5
+    timeout: 60
+    connect_timeout: 5
+  register: monitoring_node_exporter_wait_result
+  failed_when: false
+
+- name: 檢查 node_exporter 是否就緒
+  ansible.builtin.assert:
+    that:
+      - monitoring_node_exporter_wait_result.elapsed < 60
+    fail_msg: 'node_exporter 在 60 秒內未能就緒，請檢查服務日誌'
+    success_msg: 'node_exporter 已就緒'
+
+- name: 清理下載的檔案
+  ansible.builtin.file:
+    path: /tmp/node_exporter.tar.gz
+    state: absent
+
+- name: 驗證 node_exporter 運作
+  ansible.builtin.uri:
+    url: '{{ "https" if node_exporter_enable_tls | default(false) else "http" }}://localhost:{{ node_exporter_port }}/metrics'
+    method: GET
+    status_code: 200
+    validate_certs: false # 如果使用自簽憑證，需要設定為 false
+  register: monitoring_node_exporter_check
+  changed_when: false
+
+- name: 檢查 node_exporter 驗證結果
+  ansible.builtin.assert:
+    that:
+      - monitoring_node_exporter_check.status == 200
+    fail_msg: "node_exporter 驗證失敗，HTTP 狀態碼: {{ monitoring_node_exporter_check.status | default('unknown') }}"
+    success_msg: 'node_exporter 已成功啟動並可存取'

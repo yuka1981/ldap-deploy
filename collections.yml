@@ -1,0 +1,16 @@
+---
+# Ansible Collections 需求
+# 安裝方式: ansible-galaxy collection install -r collections.yml
+
+collections:
+  - name: freeipa.ansible_freeipa
+    version: ">=1.14.0"
+  - name: community.crypto
+    version: ">=2.0.0"
+  - name: community.general
+    version: ">=7.0.0"
+  - name: community.postgresql
+    version: ">=2.0.0"
+  - name: ansible.posix
+    version: ">=1.5.0"
+

@@ -1,0 +1,136 @@
+---
+# Redmine 安裝和配置
+
+- name: 下載 Redmine
+  ansible.builtin.get_url:
+    url: 'https://www.redmine.org/releases/redmine-{{ redmine_version }}.tar.gz'
+    dest: '{{ build_dir }}/redmine-{{ redmine_version }}.tar.gz'
+    mode: '0644'
+
+- name: 解壓縮 Redmine
+  ansible.builtin.unarchive:
+    src: '{{ build_dir }}/redmine-{{ redmine_version }}.tar.gz'
+    dest: '{{ redmine_home }}'
+    remote_src: true
+    owner: '{{ redmine_user }}'
+    group: '{{ redmine_group }}'
+    creates: '{{ redmine_app_dir }}'
+
+- name: 複製 Redmine 配置文件
+  ansible.builtin.template:
+    src: database.yml.j2
+    dest: '{{ redmine_app_dir }}/config/database.yml'
+    owner: '{{ redmine_user }}'
+    group: '{{ redmine_group }}'
+    mode: '0640'
+
+- name: 複製 Redmine 配置
+  ansible.builtin.template:
+    src: configuration.yml.j2
+    dest: '{{ redmine_app_dir }}/config/configuration.yml'
+    owner: '{{ redmine_user }}'
+    group: '{{ redmine_group }}'
+    mode: '0640'
+
+- name: 確保 pg gem 在 Gemfile 中（PostgreSQL adapter）
+  ansible.builtin.lineinfile:
+    path: '{{ redmine_app_dir }}/Gemfile'
+    regexp: "^gem ['\"]pg['\"]"
+    line: "gem 'pg', '~> 1.1'"
+    state: present
+    backup: true
+  when: redmine_db_adapter == 'postgresql'
+
+- name: 安裝 Redmine 依賴
+  ansible.builtin.command: '{{ ruby_install_dir }}/bin/bundle install --without development test --path vendor/bundle'
+  args:
+    chdir: '{{ redmine_app_dir }}'
+    creates: '{{ redmine_app_dir }}/vendor/bundle'
+  environment:
+    PATH: '{{ ruby_install_dir }}/bin:{{ ansible_env.PATH }}'
+    RAILS_ENV: production
+
+- name: 產生 Redmine secret key
+  ansible.builtin.command: '{{ ruby_install_dir }}/bin/rake secret'
+  args:
+    chdir: '{{ redmine_app_dir }}'
+  environment:
+    PATH: '{{ ruby_install_dir }}/bin:{{ ansible_env.PATH }}'
+    RAILS_ENV: production
+  register: redmine_secret
+  changed_when: false
+
+- name: 設定 Redmine secret key
+  ansible.builtin.lineinfile:
+    path: '{{ redmine_app_dir }}/config/secrets.yml'
+    regexp: '^  secret_key_base:'
+    line: '  secret_key_base: {{ redmine_secret.stdout }}'
+    owner: '{{ redmine_user }}'
+    group: '{{ redmine_group }}'
+    mode: '0640'
+
+- name: 檢查 secret_token.rb 是否存在
+  ansible.builtin.stat:
+    path: '{{ redmine_app_dir }}/config/initializers/secret_token.rb'
+  register: secret_token_file
+  changed_when: false
+
+- name: 產生 Redmine session store
+  ansible.builtin.command: '{{ ruby_install_dir }}/bin/rake generate_secret_token'
+  args:
+    chdir: '{{ redmine_app_dir }}'
+  environment:
+    PATH: '{{ ruby_install_dir }}/bin:{{ ansible_env.PATH }}'
+    RAILS_ENV: production
+  when: not secret_token_file.stat.exists
+
+- name: 初始化 Redmine 資料庫
+  ansible.builtin.command: '{{ ruby_install_dir }}/bin/rake db:migrate'
+  args:
+    chdir: '{{ redmine_app_dir }}'
+  environment:
+    PATH: '{{ ruby_install_dir }}/bin:{{ ansible_env.PATH }}'
+    RAILS_ENV: production
+    # 確保使用 socket 連線
+    PGHOST: ''
+  register: db_migrate
+  changed_when: "'already' not in db_migrate.stdout"
+
+- name: 載入 Redmine 預設資料
+  ansible.builtin.command: '{{ ruby_install_dir }}/bin/rake redmine:load_default_data'
+  args:
+    chdir: '{{ redmine_app_dir }}'
+  environment:
+    PATH: '{{ ruby_install_dir }}/bin:{{ ansible_env.PATH }}'
+    RAILS_ENV: production
+    REDMINE_LANG: '{{ redmine_default_lang }}'
+    # 確保使用 socket 連線
+    PGHOST: ''
+  register: load_default_data
+  changed_when: "'already' not in load_default_data.stdout"
+
+- name: 設定 Redmine 檔案權限
+  ansible.builtin.file:
+    path: '{{ item }}'
+    owner: '{{ redmine_user }}'
+    group: '{{ redmine_group }}'
+    mode: '{{ item_mode }}'
+    recurse: '{{ item_recurse | default(false) }}'
+  loop:
+    - path: '{{ redmine_app_dir }}/tmp'
+      item_mode: '0755'
+      item_recurse: true
+    - path: '{{ redmine_app_dir }}/log'
+      item_mode: '0755'
+      item_recurse: true
+    - path: '{{ redmine_app_dir }}/files'
+      item_mode: '0755'
+      item_recurse: true
+    - path: '{{ redmine_app_dir }}/public/plugin_assets'
+      item_mode: '0755'
+      item_recurse: true
+
+- name: 應用 SELinux context
+  ansible.builtin.command: restorecon -R '{{ redmine_app_dir }}'
+  changed_when: false
+

@@ -1,0 +1,16 @@
+---
+- name: restart grafana
+  ansible.builtin.systemd:
+    name: grafana
+    state: restarted
+
+- name: apply selinux context
+  ansible.builtin.command: restorecon -R '{{ item }}'
+  loop:
+    - '{{ grafana_install_dir }}'
+    - '{{ grafana_data_dir }}'
+    - '{{ grafana_log_dir }}'
+    - '{{ grafana_config_dir }}'
+  changed_when: false
+  when: ansible_selinux is defined and ansible_selinux.status == "enabled"
+

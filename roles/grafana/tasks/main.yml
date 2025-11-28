@@ -1,0 +1,129 @@
+---
+# Grafana 部署任務
+
+- name: 包含防火牆設定
+  ansible.builtin.include_tasks: firewall.yml
+  when: grafana_setup_firewall | default(true)
+
+- name: 建立 Grafana 群組
+  ansible.builtin.group:
+    name: '{{ grafana_group }}'
+    system: true
+    state: present
+
+- name: 建立 Grafana 使用者
+  ansible.builtin.user:
+    name: '{{ grafana_user }}'
+    group: '{{ grafana_group }}'
+    system: true
+    shell: /sbin/nologin
+    home: '{{ grafana_data_dir }}'
+    create_home: false
+
+- name: 建立 Grafana 目錄
+  ansible.builtin.file:
+    path: '{{ item }}'
+    state: directory
+    owner: '{{ grafana_user }}'
+    group: '{{ grafana_group }}'
+    mode: '0755'
+  loop:
+    - '{{ grafana_install_dir }}'
+    - '{{ grafana_data_dir }}'
+    - '{{ grafana_log_dir }}'
+    - '{{ grafana_config_dir }}'
+    - '{{ grafana_provisioning_dir }}/datasources'
+    - '{{ grafana_provisioning_dir }}/dashboards'
+
+- name: 包含 SELinux 設定
+  ansible.builtin.include_tasks: selinux.yml
+
+- name: 下載 Grafana
+  ansible.builtin.get_url:
+    url: 'https://dl.grafana.com/oss/release/grafana-{{ grafana_version }}.linux-amd64.tar.gz'
+    dest: /tmp/grafana.tar.gz
+    mode: '0644'
+
+- name: 解壓縮 Grafana
+  ansible.builtin.unarchive:
+    src: /tmp/grafana.tar.gz
+    dest: /opt/
+    remote_src: true
+    creates: /opt/grafana-{{ grafana_version }}.linux-amd64
+
+- name: 確保 Grafana 安裝目錄的 bin 目錄存在
+  ansible.builtin.file:
+    path: '{{ grafana_install_dir }}/bin'
+    state: directory
+    owner: '{{ grafana_user }}'
+    group: '{{ grafana_group }}'
+    mode: '0755'
+
+- name: 複製 Grafana 二進制檔案
+  ansible.builtin.copy:
+    src: '/opt/grafana-{{ grafana_version }}.linux-amd64/bin/{{ item }}'
+    dest: '{{ grafana_install_dir }}/bin/{{ item }}'
+    owner: '{{ grafana_user }}'
+    group: '{{ grafana_group }}'
+    mode: '0755'
+    remote_src: true
+  loop:
+    - grafana-server
+    - grafana-cli
+  notify:
+    - apply selinux context
+    - restart grafana
+
+- name: 建立 Grafana 配置文件
+  ansible.builtin.template:
+    src: grafana.ini.j2
+    dest: '{{ grafana_config_dir }}/grafana.ini'
+    owner: '{{ grafana_user }}'
+    group: '{{ grafana_group }}'
+    mode: '0640'
+  notify: restart grafana
+
+- name: 建立 Grafana systemd service
+  ansible.builtin.template:
+    src: grafana.service.j2
+    dest: /etc/systemd/system/grafana.service
+    owner: root
+    group: root
+    mode: '0644'
+  notify: restart grafana
+
+- name: 重新載入 systemd（立即執行）
+  ansible.builtin.systemd:
+    daemon_reload: true
+
+- name: 啟動並啟用 Grafana
+  ansible.builtin.systemd:
+    name: grafana
+    state: started
+    enabled: true
+
+- name: 等待 Grafana 就緒
+  ansible.builtin.wait_for:
+    port: '{{ grafana_port }}'
+    delay: 5
+    timeout: 60
+
+- name: 清理下載的檔案
+  ansible.builtin.file:
+    path: '{{ item }}'
+    state: absent
+  loop:
+    - /tmp/grafana.tar.gz
+    - /opt/grafana-{{ grafana_version }}.linux-amd64
+
+- name: 驗證 Grafana 運作
+  ansible.builtin.uri:
+    url: 'http://localhost:{{ grafana_port }}/api/health'
+    method: GET
+    status_code: 200
+  register: grafana_status_check
+  changed_when: false
+
+- name: 顯示部署狀態
+  ansible.builtin.debug:
+    msg: 'Grafana 已成功啟動 (http://{{ ansible_default_ipv4.address }}:{{ grafana_port }})'

@@ -1,0 +1,25 @@
+[Unit]
+Description=Grafana Server
+Documentation=https://grafana.com/docs/
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=notify
+User={{ grafana_user }}
+Group={{ grafana_group }}
+RuntimeDirectory=grafana
+WorkingDirectory={{ grafana_data_dir }}
+ExecStart={{ grafana_install_dir }}/bin/grafana-server \
+    --config={{ grafana_config_dir }}/grafana.ini \
+    --homepath={{ grafana_install_dir }} \
+    --pidfile=/var/run/grafana/grafana-server.pid \
+    --packaging=tar
+
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target
+

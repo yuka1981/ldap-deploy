@@ -1,0 +1,113 @@
+---
+# FreeIPA Server 部署
+# 使用 freeipa.ansible_freeipa.ipaserver role
+
+- name: 檢查作業系統版本
+  ansible.builtin.assert:
+    that:
+      - ansible_distribution == "Rocky"
+      - ansible_distribution_major_version == "10"
+    fail_msg: '此 playbook 僅支援 Rocky Linux 10'
+    success_msg: '作業系統版本檢查通過'
+
+- name: 檢查 SELinux 是否可用
+  ansible.builtin.command: which getenforce
+  register: openldap_selinux_check
+  changed_when: false
+  failed_when: openldap_selinux_check.rc != 0
+
+- name: 檢查 FreeIPA 是否已安裝
+  ansible.builtin.stat:
+    path: /etc/ipa/default.conf
+  register: openldap_freeipa_installed
+  changed_when: false
+
+- name: 設定 FreeIPA 變數
+  ansible.builtin.set_fact:
+    openldap_ipaserver_domain: '{{ ipa_domain }}'
+    openldap_ipaserver_realm: '{{ ipa_realm }}'
+    openldap_ipaserver_hostname: '{{ ipaserver_hostname }}'
+    openldap_ipaserver_ip: '{{ ipaserver_ip }}'
+    openldap_ipaserver_setup_dns: '{{ ipaserver_setup_dns }}'
+    openldap_ipaserver_setup_firewalld: '{{ ipaserver_setup_firewalld }}'
+    openldap_ipaserver_auto_forwarders: '{{ ipaserver_auto_forwarders }}'
+    openldap_ipaserver_no_ntp: '{{ ipaserver_no_ntp }}'
+    openldap_ipadm_password: '{{ ipadm_password }}'
+    openldap_ipaadmin_password: '{{ ipaadmin_password }}'
+    openldap_ipaserver_ntp_servers: '{{ ntp_servers }}'
+  when: not openldap_freeipa_installed.stat.exists
+  no_log: true
+
+- name: 執行 FreeIPA Server 安裝
+  ansible.builtin.include_role:
+    name: freeipa.ansible_freeipa.ipaserver
+  vars:
+    ipaserver_domain: '{{ openldap_ipaserver_domain }}'
+    ipaserver_realm: '{{ openldap_ipaserver_realm }}'
+    ipaserver_hostname: '{{ openldap_ipaserver_hostname }}'
+    ipaserver_ip: '{{ openldap_ipaserver_ip }}'
+    ipaserver_setup_dns: '{{ openldap_ipaserver_setup_dns }}'
+    ipaserver_setup_firewalld: '{{ openldap_ipaserver_setup_firewalld }}'
+    ipaserver_auto_forwarders: '{{ openldap_ipaserver_auto_forwarders }}'
+    ipaserver_no_ntp: '{{ openldap_ipaserver_no_ntp }}'
+    ipadm_password: '{{ openldap_ipadm_password }}'
+    ipaadmin_password: '{{ openldap_ipaadmin_password }}'
+    ipaserver_ntp_servers: '{{ openldap_ipaserver_ntp_servers }}'
+    ipaserver_no_hbac_allow: false
+    ipaserver_no_pkinit: false
+  when: not openldap_freeipa_installed.stat.exists
+  no_log: true
+
+- name: 等待 FreeIPA 服務就緒
+  ansible.builtin.wait_for:
+    port: '{{ ldap_ldaps_port }}'
+    delay: 10
+    timeout: 300
+  when: not openldap_freeipa_installed.stat.exists
+
+- name: 檢查 FreeIPA LDAP 連線
+  ansible.builtin.command: >
+    ldapsearch -x -H ldaps://localhost:{{ ldap_ldaps_port }}
+    -D "{{ ldap_admin_dn }}"
+    -w "{{ ldap_admin_password }}"
+    -b "{{ ldap_base_dn }}"
+    -s base "(objectclass=*)"
+  register: openldap_verify
+  changed_when: false
+  failed_when: false
+  no_log: true
+
+- name: 顯示 FreeIPA 部署摘要
+  ansible.builtin.debug:
+    msg:
+      - '=========================================='
+      - 'FreeIPA Server 部署完成'
+      - '=========================================='
+      - 'Domain: {{ ipa_domain }}'
+      - 'Realm: {{ ipa_realm }}'
+      - 'Base DN: {{ ldap_base_dn }}'
+      - 'LDAPS Port: {{ ldap_ldaps_port }}'
+      - '管理員 DN: {{ ldap_admin_dn }}'
+      - '備份目錄: {{ ldap_backup_dir }}'
+      - '監控 Port: {{ node_exporter_port }}'
+      - '=========================================='
+      - '請確保已使用 ansible-vault 加密管理員密碼'
+      - 'FreeIPA CA 憑證: /etc/ipa/ca.crt (需匯出給 Redmine)'
+      - '=========================================='
+
+- name: 驗證 FreeIPA 服務狀態
+  ansible.builtin.systemd:
+    name: '{{ item }}'
+  register: openldap_service_status
+  loop:
+    - dirsrv@{{ ipa_realm | lower }}
+    - httpd
+    - krb5kdc
+  changed_when: false
+
+- name: 顯示 FreeIPA 服務狀態
+  ansible.builtin.debug:
+    msg: "{{ item.name }}: {{ 'running' if item.status.ActiveState == 'active' else 'stopped' }}"
+  loop: '{{ openldap_service_status.results }}'
+  loop_control:
+    label: '{{ item.name }}'

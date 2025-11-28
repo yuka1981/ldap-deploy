@@ -1,0 +1,81 @@
+---
+- name: 確保 EPEL repository 已啟用
+  ansible.builtin.dnf:
+    name: epel-release
+    state: present
+
+- name: 更新套件快取
+  ansible.builtin.command: dnf makecache
+  changed_when: false
+
+- name: 更新系統套件（僅 security updates，跳過有問題的套件）
+  ansible.builtin.command: dnf upgrade --security -y --skip-broken
+  register: system_setup_dnf_update_result
+  changed_when: "'Nothing to do' not in system_setup_dnf_update_result.stdout and 'No packages marked for update' not in system_setup_dnf_update_result.stdout"
+  failed_when: false
+
+- name: 安裝必要套件
+  ansible.builtin.dnf:
+    name:
+      - openssl
+      - ca-certificates
+      - vim
+      - wget
+      - curl
+      - net-tools
+      - bind-utils
+      - chrony
+    state: present
+
+- name: 設定時區
+  community.general.timezone:
+    name: '{{ timezone }}'
+
+- name: 確保 chronyd 服務已啟動並啟用
+  ansible.builtin.systemd:
+    name: chronyd
+    state: started
+    enabled: true
+
+- name: 設定 NTP servers
+  ansible.builtin.lineinfile:
+    path: /etc/chrony.conf
+    regexp: "^pool {{ item }}"
+    line: "pool {{ item }} iburst"
+    state: present
+  loop: "{{ ntp_servers }}"
+  notify: Restart chronyd
+
+- name: 設定系統主機名（FQDN，僅限 LDAP 伺服器）
+  ansible.builtin.hostname:
+    name: '{{ inventory_hostname }}.{{ ipa_domain | default("local") }}'
+  when: ipa_domain is defined
+
+- name: 確保 /etc/hosts 包含主機名解析（FreeIPA 不使用 DNS）
+  ansible.builtin.lineinfile:
+    path: /etc/hosts
+    regexp: '^{{ ansible_default_ipv4.address }}\s+.*{{ inventory_hostname }}'
+    line: '{{ ansible_default_ipv4.address }}    {{ inventory_hostname }}.{{ ipa_domain | default("local") }} {{ inventory_hostname }}'
+    state: present
+    backup: true
+  when: ipa_domain is defined
+  register: hosts_file_updated
+
+- name: 顯示主機名設定
+  ansible.builtin.debug:
+    msg: "主機名已設定為: {{ inventory_hostname }}.{{ ipa_domain | default('local') }}"
+  when: ipa_domain is defined
+
+- name: 確保 SELinux 處於 Enforcing 模式
+  ansible.posix.selinux:
+    state: enforcing
+    policy: targeted
+
+- name: 檢查 SELinux 狀態
+  ansible.builtin.command: getenforce
+  register: system_setup_selinux_status
+  changed_when: false
+
+- name: 顯示 SELinux 狀態
+  ansible.builtin.debug:
+    msg: "SELinux 目前狀態: {{ system_setup_selinux_status.stdout }}"
