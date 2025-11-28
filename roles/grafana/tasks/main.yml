@@ -40,9 +40,7 @@
 
 - name: 下載 Grafana
   ansible.builtin.get_url:
-    url: >-
-      https://dl.grafana.com/oss/release/
-      grafana-{{ grafana_version }}.linux-amd64.tar.gz
+    url: 'https://dl.grafana.com/oss/release/grafana-{{ grafana_version }}.linux-amd64.tar.gz'
     dest: /tmp/grafana.tar.gz
     mode: '0644'
 
@@ -51,19 +49,27 @@
     src: /tmp/grafana.tar.gz
     dest: /opt/
     remote_src: true
-    creates: /opt/grafana-{{ grafana_version }}
+    creates: /opt/grafana-{{ grafana_version }}.linux-amd64
 
-- name: 複製 Grafana 檔案
+- name: 確保 Grafana 安裝目錄的 bin 目錄存在
+  ansible.builtin.file:
+    path: '{{ grafana_install_dir }}/bin'
+    state: directory
+    owner: '{{ grafana_user }}'
+    group: '{{ grafana_group }}'
+    mode: '0755'
+
+- name: 複製 Grafana 二進制檔案
   ansible.builtin.copy:
-    src: /opt/grafana-{{ grafana_version }}/{{ item }}
-    dest: '{{ grafana_install_dir }}/{{ item }}'
+    src: '/opt/grafana-{{ grafana_version }}.linux-amd64/bin/{{ item }}'
+    dest: '{{ grafana_install_dir }}/bin/{{ item }}'
     owner: '{{ grafana_user }}'
     group: '{{ grafana_group }}'
     mode: '0755'
     remote_src: true
   loop:
-    - bin/grafana-server
-    - bin/grafana-cli
+    - grafana-server
+    - grafana-cli
   notify:
     - apply selinux context
     - restart grafana
@@ -108,7 +114,7 @@
     state: absent
   loop:
     - /tmp/grafana.tar.gz
-    - /opt/grafana-{{ grafana_version }}
+    - /opt/grafana-{{ grafana_version }}.linux-amd64
 
 - name: 驗證 Grafana 運作
   ansible.builtin.uri:
@@ -121,4 +127,3 @@
 - name: 顯示部署狀態
   ansible.builtin.debug:
     msg: 'Grafana 已成功啟動 (http://{{ ansible_default_ipv4.address }}:{{ grafana_port }})'
-

@@ -29,10 +29,15 @@
   ansible.builtin.include_tasks: certificates.yml
   when: node_exporter_enable_tls | default(true)
 
+- name: 設定 node_exporter 下載 URL
+  ansible.builtin.set_fact:
+    monitoring_node_exporter_url: >-
+      https://github.com/prometheus/node_exporter/releases/download/
+      v{{ node_exporter_version }}/node_exporter-{{ node_exporter_version }}.linux-amd64.tar.gz
+
 - name: 下載 node_exporter
   ansible.builtin.get_url:
-    url: >-
-      https://github.com/prometheus/node_exporter/releases/download/v{{ node_exporter_version }}/node_exporter-{{ node_exporter_version }}.linux-amd64.tar.gz
+    url: '{{ monitoring_node_exporter_url | replace(" ", "") }}'
     dest: /tmp/node_exporter.tar.gz
     mode: '0644'
 
